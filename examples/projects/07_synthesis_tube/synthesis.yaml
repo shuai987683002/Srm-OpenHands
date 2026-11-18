@@ -1,0 +1,11 @@
+# Requirement-only case with a progressive thrust preference -> tube grain.
+requirement:
+  name: synthesis_tube
+  thrust: 2500.0
+  burn_time: 5.0
+  max_chamber_pressure: 8.0e6
+  outer_diameter: 0.13
+  length_ratio: 6.0
+  thrust_profile: progressive
+propellant: ap_htpb_80
+family: tube

@@ -1,0 +1,65 @@
+format: srm-open-project
+version: 1
+meta:
+  description: star_6_point
+requirement:
+  name: star_neutral
+  thrust: 8000.0
+  burn_time: 4.0
+  propellant_mass: null
+  total_impulse: null
+  specific_impulse: null
+  average_thrust: null
+  outer_diameter: 0.16
+  length_ratio: 5.0
+  chamber_length: null
+  max_chamber_pressure: 9000000.0
+  throat_diameter: null
+  expansion_ratio: null
+  ambient_pressure: 101325.0
+  thrust_profile: neutral
+  min_safety_factor: null
+  min_load_fraction: null
+  max_sliver_fraction: null
+propellant:
+  id: ap_htpb_80
+  name: AP/HTPB 80/20 (generic)
+  density: 1770.0
+  burn_rate:
+    law: saint_robert
+    a: 5.0e-05
+    n: 0.35
+    sigma_p: 0.0018
+    reference_temperature: 293.15
+    pressure_table: null
+    rate_table: null
+    source: representative composite AP/HTPB; calibrate to your lot
+  thermo:
+    mode: direct
+    c_star: 1550.0
+    gamma: 1.19
+    molecular_weight: 0.0245
+    chamber_temperature: 3100.0
+    chamber_pressure: null
+    source: representative AP/HTPB; use the Gibbs backend for a first-principles value
+  composition: {}
+  heat_of_formation: null
+  class_name: composite, ammonium perchlorate / HTPB
+  source: generic composite class values; Sutton & Biblarz, Rocket Propulsion Elements
+    (representative)
+  notes: ''
+grain:
+  segments:
+  - family: star
+    length: 0.5
+    outer_diameter: 0.16
+    burn_mode: internal
+    params:
+      n_points: 6.0
+      inner_diameter: 0.04
+      point_diameter: 0.12
+      point_half_angle: 30.0
+    polygon: null
+    label: ''
+  inhibit_ends: true
+  source: 6-point star (progressive-regressive)

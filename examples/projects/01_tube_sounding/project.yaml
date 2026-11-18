@@ -1,0 +1,62 @@
+format: srm-open-project
+version: 1
+meta:
+  description: tube_simple
+requirement:
+  name: tube_sounding
+  thrust: 1500.0
+  burn_time: 3.0
+  propellant_mass: null
+  total_impulse: null
+  specific_impulse: null
+  average_thrust: null
+  outer_diameter: 0.12
+  length_ratio: 6.0
+  chamber_length: null
+  max_chamber_pressure: 7000000.0
+  throat_diameter: null
+  expansion_ratio: null
+  ambient_pressure: 101325.0
+  thrust_profile: null
+  min_safety_factor: null
+  min_load_fraction: null
+  max_sliver_fraction: null
+propellant:
+  id: ap_htpb_80
+  name: AP/HTPB 80/20 (generic)
+  density: 1770.0
+  burn_rate:
+    law: saint_robert
+    a: 5.0e-05
+    n: 0.35
+    sigma_p: 0.0018
+    reference_temperature: 293.15
+    pressure_table: null
+    rate_table: null
+    source: representative composite AP/HTPB; calibrate to your lot
+  thermo:
+    mode: direct
+    c_star: 1550.0
+    gamma: 1.19
+    molecular_weight: 0.0245
+    chamber_temperature: 3100.0
+    chamber_pressure: null
+    source: representative AP/HTPB; use the Gibbs backend for a first-principles value
+  composition: {}
+  heat_of_formation: null
+  class_name: composite, ammonium perchlorate / HTPB
+  source: generic composite class values; Sutton & Biblarz, Rocket Propulsion Elements
+    (representative)
+  notes: ''
+grain:
+  segments:
+  - family: tube
+    length: 0.5
+    outer_diameter: 0.16
+    burn_mode: internal
+    params:
+      inner_diameter: 0.06
+    polygon: null
+    label: ''
+  inhibit_ends: true
+  source: Simple central-bore tube (internal burning)

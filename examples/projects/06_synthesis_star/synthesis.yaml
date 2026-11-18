@@ -1,0 +1,12 @@
+# Requirement-only case: the grain is synthesised from the indicators.
+# A near-neutral thrust profile selects a star grain.
+requirement:
+  name: synthesis_star
+  thrust: 8000.0
+  burn_time: 4.0
+  max_chamber_pressure: 9.0e6
+  outer_diameter: 0.16
+  length_ratio: 5.0
+  thrust_profile: neutral
+propellant: ap_htpb_80
+family: star

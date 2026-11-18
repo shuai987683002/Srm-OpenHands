@@ -1,0 +1,46 @@
+# Srm-Open default configuration (layered; see srm_open/config.py)
+paths:
+  data_dir: data
+  propellant_db: data/propellants/propellants.yaml
+  template_dir: data/templates
+  thermo_db: data/thermo/thermo.yaml
+  output_dir: output
+
+ballistics:
+  model: equilibrium      # equilibrium | transient
+  pressure_floor: 1.0e+4
+  time_steps: 400
+  ode_rtol: 1.0e-6
+  ode_atol: 1.0e-3
+
+burnback:
+  method: analytic        # analytic | levelset
+  n_steps: 200
+  levelset:
+    nx: 300
+    ny: 300
+    cfl: 0.5
+    reinit_iters: 20
+
+geometry:
+  backend: auto           # auto | cadquery | pure
+  min_feature_size: 1.0e-4
+
+thermo:
+  backend: auto           # auto | gibbs | rocketcea | cantera
+  species: default
+
+integrity:
+  method: lame            # lame | fem
+  fem:
+    nr: 60
+    nz: 60
+
+inverse:
+  optimizer: cma          # cma | de | nelder_mead
+  max_iter: 400
+  seed: 12345
+
+report:
+  format: markdown
+  include_plots: true

@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "srm-open"
+version = "0.1.0"
+description = "Open-source solid rocket motor design software (teaching + non-commercial R&D)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Srm-Open contributors" }]
+keywords = ["solid rocket motor", "internal ballistics", "grain design", "burnback"]
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering",
+]
+
+# Core runtime deps are intentionally light so the engine works offline / in CI.
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+  "pydantic>=2.5",
+  "PyYAML>=6.0",
+  "Jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+# Optional accelerators / interop. None of these are required by the core engine.
+viz = ["matplotlib>=3.7"]
+cad = ["cadquery>=2.4"]
+mesh = ["scikit-image>=0.22"]
+report = ["matplotlib>=3.7"]
+thermo_external = ["rocketcea>=1.0", "cantera>=3.0"]
+optimize = ["pymoo>=0.6"]
+dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.4"]
+all = [
+  "matplotlib>=3.7", "cadquery>=2.4", "scikit-image>=0.22",
+  "pymoo>=0.6", "pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.4",
+]
+
+[project.scripts]
+srm = "srm_open.api.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/shuai987683002/Srm-OpenHands"
+Documentation = "https://github.com/shuai987683002/Srm-OpenHands/tree/main/docs"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+srm_open = ["data/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+  "verification: verification / validation cases against analytical or reference data",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# Style-only rules intentionally not enforced in this numeric codebase.
+ignore = ["E501", "E702", "UP031", "B905"]

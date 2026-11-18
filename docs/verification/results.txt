@@ -1,0 +1,44 @@
+
+[V1] H2+0.5O2: computed T_ad=3077.0 K, ref=3077.1 K (-0.00%)
+.[V1] CH4+2O2: computed T_ad=3051.7 K, ref=3052.2 K (-0.02%)
+.[V1] CO+0.5O2: computed T_ad=2761.9 K, ref=2762.3 K (-0.02%)
+.
+[V2] exit Mach=3.4052, area-ratio identity=12.0000 (target 12.0)
+.
+[V2] c*=1571.96 m/s
+.
+[V3] tube port area: 0.002827 vs exact 0.002827 (-0.004%)
+[V3] tube A_b0: 0.094247 vs exact 0.094248 (-0.001%)
+.
+[V3] web thickness: 0.050000 vs exact 0.050000
+.
+[V4] tube: geometric vs level-set A_b: max=0.0706 mean=0.0079
+.
+[V4] star: geometric vs level-set A_b: max=0.0395 mean=0.0084
+.
+[V5] inner hoop stress: Lame=6.6364 MPa, FEM=6.6117 MPa, (-0.372%)
+.
+[V5] hoop stress across nu=0.30..0.4995: ['6.5872', '6.5872', '6.5872'] MPa, spread=4.47e-06
+.
+[V5] sigma_r(a)=-5000000.0 Pa (=-p_i), sigma_r(b)=0.000 Pa (=0)
+.
+[V6] equilibrium p_c: 2.3176 MPa vs closed form 2.3176 MPa
+.
+[V6] mass-balance residual: max=8.84e-16
+.
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/verification/test_verification.py::test_v1_thermo_h2_o2
+PASSED tests/verification/test_verification.py::test_v1_thermo_ch4_o2
+PASSED tests/verification/test_verification.py::test_v1_thermo_co_o2
+PASSED tests/verification/test_verification.py::test_v2_nozzle_area_ratio_identity
+PASSED tests/verification/test_verification.py::test_v2_c_star_identity
+PASSED tests/verification/test_verification.py::test_v3_tube_geometry_closed_form
+PASSED tests/verification/test_verification.py::test_v3_web_thickness_closed_form
+PASSED tests/verification/test_verification.py::test_v4_burnback_crosscheck[tube-seg0]
+PASSED tests/verification/test_verification.py::test_v4_burnback_crosscheck[star-seg1]
+PASSED tests/verification/test_verification.py::test_v5_fem_vs_lame_hoop_stress
+PASSED tests/verification/test_verification.py::test_v5_fem_no_volumetric_locking
+PASSED tests/verification/test_verification.py::test_v5_lame_radial_boundary_conditions
+PASSED tests/verification/test_verification.py::test_v6_equilibrium_pressure_closed_form
+PASSED tests/verification/test_verification.py::test_v6_burn_area_over_throat_and_mass_balance
