@@ -6,13 +6,18 @@ import pytest
 
 from srm_open.api import design_forward, design_from_template, list_templates
 from srm_open.api.facade import get_propellant
-from srm_open.inverse import (analyze_existing_grain, default_design_space,
-                              fit_burn_area, inverse_burn_rate, inverse_design)
+from srm_open.burnback.geometric import burnback_geometric
+from srm_open.inverse import (
+    analyze_existing_grain,
+    default_design_space,
+    fit_burn_area,
+    inverse_burn_rate,
+    inverse_design,
+)
 from srm_open.io import TemplateLibrary, load_project, save_project
 from srm_open.models.grain import GrainFamily
 from srm_open.models.requirements import RequirementSet
 from srm_open.report import write_report
-from srm_open.burnback.geometric import burnback_geometric
 
 
 def test_forward_from_template_runs_end_to_end():
@@ -32,8 +37,35 @@ def test_forward_design_synthesises_grain():
                         "thrust_profile": "neutral"}, "ap_htpb_80")
     assert r.grain is not None
     assert r.grain.segments[0].family == GrainFamily.STAR
-    # thrust should land within a few percent of the target
-    assert abs(r.performance.average_thrust / 8000 - 1) < 0.10
+    # M9 refinement (plan 5.1 step 7) should land thrust and burn time on target
+    assert abs(r.performance.average_thrust / 8000 - 1) < 0.02
+    assert abs(r.performance.burn_time / 4.0 - 1) < 0.02
+
+
+def test_forward_design_refinement_improves_target_match():
+    req = {"thrust": 8000, "burn_time": 4.0, "max_chamber_pressure": 9e6,
+           "outer_diameter": 0.16, "length_ratio": 5, "thrust_profile": "neutral"}
+    coarse = design_forward(req, "ap_htpb_80", refine=False)
+    refined = design_forward(req, "ap_htpb_80", refine=True)
+
+    def err(r):
+        return (abs(r.performance.average_thrust / 8000 - 1)
+                + abs(r.performance.burn_time / 4.0 - 1))
+
+    assert err(refined) < err(coarse)
+
+
+def test_cli_design_command_parses():
+    from srm_open.api.cli import build_parser
+
+    args = build_parser().parse_args([
+        "design", "--thrust", "8000", "--burn-time", "4",
+        "--max-pressure", "9e6", "--outer-diameter", "0.16",
+        "--length-ratio", "5", "--thrust-profile", "neutral", "--no-refine"])
+    assert args.command == "design"
+    assert args.func.__name__ == "cmd_design"
+    assert args.thrust == 8000 and args.burn_time == 4.0
+    assert args.length_ratio == 5.0 and args.no_refine is True
 
 
 @pytest.mark.parametrize("tid", list_templates())

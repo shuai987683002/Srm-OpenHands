@@ -2,6 +2,7 @@
 
 Commands
 --------
+  srm design      --thrust F --burn-time t [--family F] [--no-refine]  (indicators -> grain)
   srm forward     --template T --propellant P --thrust F --burn-time t [--report DIR]
   srm inverse     --template T --propellant P --thrust F --burn-time t [--report DIR]
   srm thermo      --propellant P [--pressure p]
@@ -72,6 +73,20 @@ def cmd_forward(args) -> int:
     grain = TemplateLibrary.load_default().geometry(args.template)
     prop = get_propellant(args.propellant)
     result = forward_design(_req_from_args(args), grain, prop)
+    return _emit(result, args)
+
+
+def cmd_design(args) -> int:
+    """Requirement-driven forward design: indicators -> synthesised grain."""
+    from .facade import design_forward as design_from_indicators
+
+    req = _req_from_args(args)
+    if args.thrust_profile:
+        req.thrust_profile = args.thrust_profile
+    if args.length_ratio:
+        req.length_ratio = args.length_ratio
+    result = design_from_indicators(req, args.propellant, family=args.family,
+                                    refine=not args.no_refine)
     return _emit(result, args)
 
 
@@ -161,6 +176,29 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("forward", help="forward design from requirements")
     add_common(sp); sp.set_defaults(func=cmd_forward)
+
+    sp = sub.add_parser("design", help="requirement-driven design: indicators -> synthesised grain")
+    sp.add_argument("--name", default="cli")
+    sp.add_argument("--propellant", default="ap_htpb_80")
+    sp.add_argument("--family", default=None,
+                    help="grain family (tube, star, wagon_wheel, ...); auto-selected if omitted")
+    sp.add_argument("--thrust", type=float, default=None)
+    sp.add_argument("--burn-time", type=float, default=None)
+    sp.add_argument("--total-impulse", type=float, default=None)
+    sp.add_argument("--isp", type=float, default=None)
+    sp.add_argument("--outer-diameter", type=float, default=None)
+    sp.add_argument("--length-ratio", type=float, default=None)
+    sp.add_argument("--thrust-profile", default=None,
+                    choices=["neutral", "progressive", "regressive"])
+    sp.add_argument("--max-pressure", type=float, default=None)
+    sp.add_argument("--expansion-ratio", type=float, default=None)
+    sp.add_argument("--throat-diameter", type=float, default=None)
+    sp.add_argument("--ambient-pressure", type=float, default=101325.0)
+    sp.add_argument("--no-refine", action="store_true",
+                    help="skip the M9 local refinement (faster, less exact)")
+    sp.add_argument("--report", default=None)
+    sp.add_argument("--json", default=None)
+    sp.set_defaults(func=cmd_design)
 
     sp = sub.add_parser("inverse", help="inverse design from requirements")
     add_common(sp)

@@ -40,12 +40,15 @@ srm export-cad --template star_6_point --format stl --out grain.stl
 ```python
 from srm_open.api import design_forward, design_from_template
 
-# A) 指标 → 药型 → 性能（正向设计，自动选型 + 合成药柱）
+# A) 指标 → 药型 → 性能（正向设计，自动选型 + 合成药柱 + 局部精修）
 r = design_forward({"thrust": 8000, "burn_time": 4.0, "max_chamber_pressure": 9e6,
                     "outer_diameter": 0.16, "length_ratio": 5,
                     "thrust_profile": "neutral"}, "ap_htpb_80")
 print(r.performance.total_impulse, r.performance.specific_impulse)
 print(r.ballistics.peak_pressure, r.grain.segments[0].params)
+
+# 密集参数扫描时可关闭精修以节省时间（此时推力可能略偏离指标）
+r_fast = design_forward({...}, "ap_htpb_80", refine=False)
 
 # B) 给定模板 → 性能
 r = design_from_template("tube_simple", "ap_htpb_80",

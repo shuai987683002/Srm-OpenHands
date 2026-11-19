@@ -55,12 +55,94 @@ def evaluate_propellant_thermo(propellant_id: str, pressure: float) -> dict:
     }
 
 
+def _performance_target_objective(req: RequirementSet, propellant: PropellantModel, space):
+    """Objective over the grain design vector: mean squared relative error of the
+    achieved performance against the requested indicators (plan §5.1 step 7)."""
+    from ..orchestration.forward import forward_design
+
+    def objective(x):
+        geom = space.to_geometry(x)
+        try:
+            result = forward_design(req, geom, propellant)
+        except Exception:
+            return 1e6
+        perf = result.performance
+        if perf is None or perf.total_impulse <= 0:
+            return 1e6
+        err = 0.0
+        n = 0
+        if req.thrust:
+            err += ((perf.average_thrust - req.thrust) / req.thrust) ** 2
+            n += 1
+        if req.burn_time:
+            err += ((perf.burn_time - req.burn_time) / req.burn_time) ** 2
+            n += 1
+        if req.total_impulse:
+            err += ((perf.total_impulse - req.total_impulse) / req.total_impulse) ** 2
+            n += 1
+        if req.max_chamber_pressure and result.ballistics:
+            pk = result.ballistics.peak_pressure
+            if pk > req.max_chamber_pressure:
+                err += 2.0 * ((pk - req.max_chamber_pressure) / req.max_chamber_pressure) ** 2
+                n += 2
+        return err / max(n, 1)
+
+    return objective
+
+
+class _TargetReached(Exception):
+    """Raised from the optimiser callback to stop refinement early."""
+
+
+def _refine_synthesis(req: RequirementSet, propellant: PropellantModel, family: GrainFamily,
+                      grain: GrainGeometry, max_iter: int,
+                      tol: float = 1e-6) -> tuple[GrainGeometry, float]:
+    """Warm-started local refinement of the synthesised grain (M9, plan §5.1 step 7).
+
+    Synthesis gives a good starting point; a Nelder-Mead polish on the same
+    forward model pulls thrust / burn time / total impulse onto the targets.
+    Refinement stops as soon as the objective is below ``tol`` so complex
+    families do not pay for iterations that buy nothing.  Returns the refined
+    geometry and the achieved objective.
+    """
+    from ..inverse.design import default_design_space
+    from ..inverse.optimize import minimize
+
+    d_o = req.outer_diameter or grain.max_outer_diameter
+    seg = grain.segments[0]
+    length_range = (max(0.05, 0.5 * seg.length), 2.0 * seg.length)
+    space = default_design_space(family, d_o, length_range)
+    x0 = space.to_vector(seg.params, seg.length)
+    objective = _performance_target_objective(req, propellant, space)
+
+    best = {"x": x0, "fun": float("inf")}
+
+    def tracked(x):
+        val = objective(x)
+        if val < best["fun"]:
+            best["x"], best["fun"] = x, val
+        return val
+
+    def stop_when_good(x):
+        if best["fun"] < tol:
+            raise _TargetReached
+
+    try:
+        res = minimize(tracked, x0, bounds=space.bounds(), method="nelder_mead",
+                       max_iter=max_iter, callback=stop_when_good)
+        return space.to_geometry(res.x), float(res.fun)
+    except _TargetReached:
+        return space.to_geometry(best["x"]), float(best["fun"])
+
+
 def design_forward(requirement: RequirementSet | dict[str, Any],
                    propellant_id: str = "ap_htpb_80",
                    family: str | GrainFamily | None = None,
                    length: float | None = None,
                    material: Any = None,
+                   refine: bool = True,
                    refine_iters: int = 3,
+                   refine_max_iter: int = 60,
                    **kwargs: Any) -> DesignResult:
     """Full forward design: indicators -> synthesised grain -> performance.
 
@@ -71,7 +153,10 @@ def design_forward(requirement: RequirementSet | dict[str, Any],
     Synthesis sizes the web from the burning rate at a *design* pressure, but
     the realized chamber pressure is lower, so burn time comes out long.  The
     ``refine_iters`` loop re-synthesises with the realized mean pressure as the
-    new design pressure, which pulls burn time onto the target.
+    new design pressure, which pulls burn time onto the target.  When a hard
+    performance target (thrust / burn time / total impulse) is still missed, a
+    warm-started local refinement (``refine``, plan §5.1 step 7) polishes the
+    grain parameters on the same forward model until the targets are met.
     """
     import numpy as np
 
@@ -94,6 +179,7 @@ def design_forward(requirement: RequirementSet | dict[str, Any],
     n = prop.burn_rate.n
     result = None
     info = None
+    grain = None
     for _ in range(max(1, refine_iters)):
         grain, info = synthesize_grain(req, prop, family=family, length=length,
                                        design_pressure=design_pressure,
@@ -109,10 +195,19 @@ def design_forward(requirement: RequirementSet | dict[str, Any],
             break
         web_pressure = p_mean
 
+    # M9 refinement: polish the grain so hard performance targets are met.
+    refine_objective = None
+    if refine and (req.thrust or req.burn_time or req.total_impulse) and grain is not None:
+        grain, refine_objective = _refine_synthesis(
+            req, prop, family, grain, refine_max_iter)
+        result = forward_design(req, grain, prop, material=material, **kwargs)
+
     result.mode = "forward"
-    result.provenance.model_choices["grain_synthesis"] = (
-        f"family={family.value}, objective={info['objective']:.3e}, "
-        f"design_pressure={design_pressure/1e6:.3f} MPa")
+    synth_note = (f"family={family.value}, objective={info['objective']:.3e}, "
+                  f"design_pressure={design_pressure/1e6:.3f} MPa")
+    if refine_objective is not None:
+        synth_note += f", refined_objective={refine_objective:.3e}"
+    result.provenance.model_choices["grain_synthesis"] = synth_note
     result.verification.checks.append({
         "name": "grain_synthesis_mass", "passed": True,
         "value": info["achieved_propellant_mass"], "tol": info["target_propellant_mass"],

@@ -74,6 +74,10 @@ def _circle(r: float) -> Polygon:
     return Point(0.0, 0.0).buffer(r, quad_segs=96)
 
 
+def _circle_at(cx: float, cy: float, r: float) -> Polygon:
+    return Point(cx, cy).buffer(r, quad_segs=48)
+
+
 def _regular_polygon(radius: float, n: int, rotation: float = 0.0) -> Polygon:
     pts = [
         (radius * math.cos(rotation + 2 * math.pi * k / n),
@@ -160,55 +164,77 @@ def _safe_polygon(poly):
 
 
 def build_wagon_wheel(p: dict, r_outer: float) -> Polygon:
+    """Wagon-wheel port: hub bore + narrow radial channels + circular outer bulbs.
+
+    Each "spoke" is a thin channel (35 % of ``spoke_width``) running from the hub
+    to a circular bulb of diameter ``spoke_width`` centred at ``r_hub +
+    spoke_length``.  The channels keep the port connected (a disconnected union
+    would be truncated downstream), and the bulbs are what distinguish a wagon
+    wheel from a slotted grain.
+    """
     n = int(round(p["n_spokes"]))
     r_hub = p["inner_diameter"] / 2.0
     w = p["spoke_width"]
-    L = p["spoke_length"]
+    r_bulb = w / 2.0
+    pitch = min(r_hub + p["spoke_length"], max(r_hub, r_outer - r_bulb))
+    w_ch = 0.35 * w
     parts: list[Polygon] = [_circle(r_hub)]
     for k in range(n):
         theta = 2 * math.pi * k / n
         ca, sa = math.cos(theta), math.sin(theta)
-        # rectangle from hub to hub+L, width w, rotated
-        r0, r1 = 0.0, r_hub + L
-        rect = [
-            (r0, -w / 2), (r1, -w / 2), (r1, w / 2), (r0, w / 2),
-        ]
-        rot = [(x * ca - y * sa, x * sa + y * ca) for x, y in rect]
-        parts.append(Polygon(rot))
+        channel = [(r_hub * 0.5, -w_ch / 2), (pitch, -w_ch / 2),
+                   (pitch, w_ch / 2), (r_hub * 0.5, w_ch / 2)]
+        parts.append(Polygon([(x * ca - y * sa, x * sa + y * ca) for x, y in channel]))
+        parts.append(_circle_at(pitch * ca, pitch * sa, r_bulb))
     port = unary_union(parts).intersection(_circle(r_outer))
-    return port
+    return _safe_polygon(port)
 
 
 def build_slotted(p: dict, r_outer: float) -> Polygon:
+    """Slotted port: central bore plus thin, straight-sided radial slots.
+
+    Slots have constant width and a square outer end -- the simple slotted
+    (stress-relief) geometry.  Rounded tips belong to the wagon wheel and
+    tapered sides to the finocyl, so the three families stay geometrically
+    distinct rather than being renames of one another.
+    """
     n = int(round(p["n_slots"]))
     r_bore = p["inner_diameter"] / 2.0
     w = p["slot_width"]
-    depth = p["slot_depth"]
+    r_end = min(r_bore + p["slot_depth"], max(r_bore, r_outer - w / 2.0))
     parts: list[Polygon] = [_circle(r_bore)]
     for k in range(n):
         theta = 2 * math.pi * k / n
         ca, sa = math.cos(theta), math.sin(theta)
-        rect = [(r_bore * 0.5, -w / 2), (r_bore + depth, -w / 2),
-                (r_bore + depth, w / 2), (r_bore * 0.5, w / 2)]
-        rot = [(x * ca - y * sa, x * sa + y * ca) for x, y in rect]
-        parts.append(Polygon(rot))
-    return unary_union(parts).intersection(_circle(r_outer))
+        slot = [(r_bore * 0.5, -w / 2), (r_end, -w / 2),
+                (r_end, w / 2), (r_bore * 0.5, w / 2)]
+        parts.append(Polygon([(x * ca - y * sa, x * sa + y * ca) for x, y in slot]))
+    port = unary_union(parts).intersection(_circle(r_outer))
+    return _safe_polygon(port)
 
 
 def build_finocyl(p: dict, r_outer: float) -> Polygon:
+    """Finocyl port: central bore plus radial fins that taper toward the tip.
+
+    Fins are wide at the bore (``fin_width``) and narrow to ``fin_tip_ratio`` of
+    that width at ``r_bore + fin_length``, which is what distinguishes a finocyl
+    from a slotted grain.  The ratio is a fixed modelling choice (0.4).
+    """
     n = int(round(p["n_fins"]))
     r_bore = p["inner_diameter"] / 2.0
     w = p["fin_width"]
-    L = p["fin_length"]
+    r_tip = min(r_bore + p["fin_length"], r_outer)
+    w_tip = 0.4 * w
     parts: list[Polygon] = [_circle(r_bore)]
     for k in range(n):
         theta = 2 * math.pi * k / n
         ca, sa = math.cos(theta), math.sin(theta)
-        rect = [(r_bore * 0.5, -w / 2), (r_bore + L, -w / 2),
-                (r_bore + L, w / 2), (r_bore * 0.5, w / 2)]
-        rot = [(x * ca - y * sa, x * sa + y * ca) for x, y in rect]
+        fin = [(r_bore * 0.5, -w / 2), (r_tip, -w_tip / 2),
+               (r_tip, w_tip / 2), (r_bore * 0.5, w / 2)]
+        rot = [(x * ca - y * sa, x * sa + y * ca) for x, y in fin]
         parts.append(Polygon(rot))
-    return unary_union(parts).intersection(_circle(r_outer))
+    port = unary_union(parts).intersection(_circle(r_outer))
+    return _safe_polygon(port)
 
 
 def build_spherical(p: dict, r_outer: float) -> Polygon:

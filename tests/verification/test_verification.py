@@ -11,18 +11,17 @@ Run just these with::
 
 import math
 
-import numpy as np
 import pytest
 
 from srm_open.burnback.engine import crosscheck
 from srm_open.burnback.geometric import burnback_geometric
-from srm_open.geometry.analysis import analyze_segment, port_polygon, web_thickness
+from srm_open.geometry.analysis import analyze_segment, web_thickness
 from srm_open.integrity.fem import solve_axisymmetric
-from srm_open.integrity.lame import ElasticMaterial, lame_check, lame_stresses
+from srm_open.integrity.lame import ElasticMaterial, lame_stresses
 from srm_open.models.grain import BurnMode, GrainFamily, GrainGeometry, GrainSegment
 from srm_open.models.nozzle import NozzleModel
-from srm_open.nozzle.model import Nozzle, exit_mach
-from srm_open.thermo import default_db, GibbsEquilibrium
+from srm_open.nozzle.model import exit_mach
+from srm_open.thermo import GibbsEquilibrium, default_db
 from srm_open.thermo.backend import c_star_from
 
 pytestmark = pytest.mark.verification
@@ -182,8 +181,8 @@ def test_v6_equilibrium_pressure_closed_form():
 
 
 def test_v6_burn_area_over_throat_and_mass_balance():
-    from srm_open.ballistics.solver import (BallisticsInputs, solve_internal_ballistics)
     from srm_open.api.facade import get_propellant
+    from srm_open.ballistics.solver import BallisticsInputs, solve_internal_ballistics
     seg = GrainSegment(family=GrainFamily.TUBE, length=0.5, outer_diameter=0.16,
                        params={"inner_diameter": 0.06}, burn_mode=BurnMode.INTERNAL)
     prop = get_propellant("ap_htpb_80")

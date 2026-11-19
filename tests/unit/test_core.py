@@ -5,14 +5,13 @@ import math
 import numpy as np
 import pytest
 
-from srm_open.burnback.engine import compute_burnback, crosscheck
+from srm_open.burnback.engine import crosscheck
 from srm_open.burnback.geometric import burn_area_at, burnback_geometric
 from srm_open.geometry.analysis import analyze_segment, port_polygon, web_thickness
-from srm_open.geometry.families import build_port
 from srm_open.models.grain import BurnMode, GrainFamily, GrainSegment
 from srm_open.models.nozzle import NozzleModel
 from srm_open.nozzle.model import Nozzle, exit_mach
-from srm_open.thermo import default_db, GibbsEquilibrium
+from srm_open.thermo import GibbsEquilibrium, default_db
 from srm_open.thermo.backend import c_star_from
 
 
@@ -71,6 +70,34 @@ def test_all_families_produce_valid_port(family, params):
     assert port.is_valid
     assert port.area > 0
     assert port.area < math.pi / 4 * 0.18 ** 2
+
+
+def test_slotted_finocyl_wagon_wheel_are_distinct():
+    """Guards against the three multi-cavity families degenerating into one
+    shape: they must differ geometrically at equal nominal parameters."""
+    common = {"inner_diameter": 0.05}
+    specs = {
+        "wagon_wheel": (GrainFamily.WAGON_WHEEL,
+                        {"n_spokes": 6, "spoke_width": 0.02, "spoke_length": 0.05}),
+        "slotted": (GrainFamily.SLOTTED,
+                    {"n_slots": 6, "slot_width": 0.012, "slot_depth": 0.04}),
+        "finocyl": (GrainFamily.FINOCYL,
+                    {"n_fins": 6, "fin_width": 0.012, "fin_length": 0.05}),
+    }
+    ports = {}
+    for name, (family, params) in specs.items():
+        seg = GrainSegment(family=family, length=0.4, outer_diameter=0.18,
+                           params={**common, **params})
+        port = port_polygon(seg)
+        assert port.is_valid
+        assert port.geom_type == "Polygon", f"{name} port is disconnected"
+        ports[name] = port
+    names = list(ports)
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            a, b = ports[names[i]], ports[names[j]]
+            assert a.symmetric_difference(b).area > 1e-4, \
+                f"{names[i]} and {names[j]} are the same geometry"
 
 
 def _grain(seg):

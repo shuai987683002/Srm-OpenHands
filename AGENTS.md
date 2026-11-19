@@ -69,12 +69,28 @@ docs/            plan, architecture.md, theory/, user_guide/, verification/
 - **Grain synthesis** (`orchestration/synthesis.py`) matches propellant volume,
   mean burn area and web; `design_forward` refines the web target from the
   realized (burn-rate-weighted) mean pressure so burn time lands on target.
-- **Forward thrust is not exactly hit by design**: sizing the throat from the
-  design pressure makes delivered thrust slightly above target (the 0D model's
-  `C_F` differs from the nozzle's). This is a documented limitation; exact
-  thrust/impulse matching is the *inverse* design's job (`inverse_design`
-  converges to 9/9 on the example). Do not "fix" it by sizing the throat from
-  thrust — that drops the operating pressure and degrades every other metric.
+- **Forward synthesis is two-stage** (`api/facade.py:design_forward`): after the
+  analytical synthesis, a warm-started Nelder-Mead **local refinement**
+  (`_refine_synthesis`, plan §5.1 step 7) polishes the grain so thrust / burn
+  time / total impulse hit the targets on the same forward model. Examples
+  06/07 reach 9/9. Pass `refine=False` for fast parameter sweeps. The refinement
+  is *local*: a far-off synthesis seed needs a larger `refine_max_iter` or the
+  global `inverse_design` optimiser.
+- **Do not size the throat from thrust.** Throat sizing is from the target
+  chamber pressure (`size_throat_from_pressure`); sizing from thrust drops the
+  operating pressure and degrades every other metric. Thrust matching belongs to
+  the refinement/inverse layer, not the nozzle sizing.
+- **The three multi-cavity families are distinct by construction**: wagon wheel
+  = bore + thin radial channels + circular outer bulbs; slotted = bore + constant
+  width square-ended slots; finocyl = bore + fins tapering to 40 % width at the
+  tip. They were once three renames of one "bore + rectangles" builder — keep
+  `test_slotted_finocyl_wagon_wheel_are_distinct` green. Ports must stay a single
+  connected `Polygon`; a disconnected union is silently truncated by
+  `_safe_polygon`, which is how the wagon-wheel bulbs once vanished.
+- **`shapely` is a hard core dependency** (`geometry/analysis.py`,
+  `geometry/families.py`, `burnback/levelset.py`). It is declared in
+  `pyproject.toml` core deps — keep it there; a missing shapely breaks the
+  geometry channel that everything else builds on.
 - **`inverse_convergence`** is judged on the achieved objective residual, not the
   optimiser's `success` flag (Nelder-Mead reports `success=False` on simplex
   shrink even when the physical targets are met).

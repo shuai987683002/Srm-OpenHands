@@ -29,7 +29,12 @@ srm templates                               # 列出内置药型模板
 srm propellants                             # 列出推进剂条目
 srm thermo --propellant ap_htpb_80          # 评估热化学（c*, γ, T_c, 分子量）
 
-# 正向设计：指标 → 药型 → 性能
+# 正向设计：总体指标 → 药型方案 → 性能（自动选型 + 合成 + 精修）
+srm design --thrust 8000 --burn-time 4 --max-pressure 9e6 \
+    --outer-diameter 0.16 --length-ratio 5 --thrust-profile neutral \
+    --report out/ --json out/r.json
+
+# 给定模板 → 性能（固定几何的裕度评估）
 srm forward --template star_6_point --propellant ap_htpb_80 \
     --thrust 8000 --burn-time 4 --max-pressure 9e6 --report out/ --json out/r.json
 
