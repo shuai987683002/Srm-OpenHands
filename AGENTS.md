@@ -126,6 +126,22 @@ docs/            plan, architecture.md, theory/, user_guide/, verification/
   propellant-like `nu ~ 0.5` and gives mesh-dependent garbage.
 - **YAML 1.1 exponent trap**: `1.0e4` is parsed as a string; `config._coerce`
   converts numeric-looking strings to float. Use `1.0e+4` style in configs.
+- **`data/schema/` is generated, never hand-edited.** `scripts/build_schema.py`
+  emits it from the pydantic models. Nested models must stay cross-file `$ref`
+  (inlining them makes `#/$defs/*` dangle), and each sub-schema needs a
+  `$schema` key or `referencing` cannot detect its spec. `test_schema.py` has a
+  drift guard and CI re-runs the generator + `git diff --exit-code`.
+- **`api/rest.py` is a thin wrapper over `api/facade.py`** — no numerics. It
+  must stay importable only with the `[api]` extra, so the engine never depends
+  on FastAPI. Check field names against the real models: `NozzleModel` has
+  `exit_area` (not `exit_diameter`) and `VerificationReport.checks` is a list of
+  **dicts** (`c["passed"]`), not objects.
+- **`thrust_profile` is a `Literal`** (`neutral|progressive|regressive`). It used
+  to be a free string, and a typo silently fell through to the "no preference"
+  branch in `recommend_families`, changing the selected family with no error.
+- **Example 08 is script-driven** (`study.py`, no `project.yaml`), so
+  `run_case.py` over every directory reports it as skipped-by-design. Its
+  `study_result.json` is gitignored.
 - **AP/HTPB Gibbs T_ad is low** vs Cantera (chlorine/condensed-phase
   simplification). Default to literature `direct` thermo; `ap_htpb_gibbs` is a
   demo entry only.
