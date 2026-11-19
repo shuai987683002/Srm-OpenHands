@@ -29,8 +29,21 @@ srm inverse --template star_6_point --thrust 6000 --burn-time 4 --max-pressure 9
 # 逆向：由已有药型项目反推几何特征
 srm reverse --project examples/projects/02_star_neutral/project.yaml
 
-# 导出几何
+# 逆向路径 A：由二维端口轮廓反推药型参数
+srm fit-outline --points outline.csv --family star --outer-diameter 0.16 --length 0.8
+
+# 可辨识性诊断（条件数 / VIF / frozen / inactive）
+srm sensitivity --family star --outer-diameter 0.16
+
+# 批量研究：参数扫描与蒙特卡洛
+srm sweep --template tube_simple --thrust 6000 --burn-time 4 \
+    --parameter max_chamber_pressure --values 6e6,7e6,8e6
+srm monte-carlo --template tube_simple --thrust 6000 --burn-time 4 \
+    --vary density:15 --samples 100 --seed 42
+
+# 导出几何（stl / step / 点云）
 srm export-cad --template star_6_point --format stl --out grain.stl
+srm export-cad --template star_6_point --format pointcloud --out grain.xyz
 ```
 
 > 直接以源码运行：`PYTHONPATH=src python -m srm_open.api.cli ...`
@@ -71,6 +84,7 @@ PYTHONPATH=src python examples/run_case.py examples/projects/06_synthesis_star
 | 05_two_segment_booster | 固定几何 | 两段柱药助推器 |
 | 06_synthesis_star | 指标驱动 | 由指标合成星形药柱 |
 | 07_synthesis_tube | 指标驱动 | 由指标合成管形药柱（渐进） |
+| 08_inverse_identifiability | 逆向研究 | 轮廓反演 + 可辨识性 + 扫描 + 蒙特卡洛 |
 
 每个用例运行后会在 `output/` 生成 `report.md`、`report.html`、曲线 PNG 与 `result.json`。
 
@@ -89,7 +103,11 @@ PYTHONPATH=src python examples/run_case.py examples/projects/06_synthesis_star
 - 改动单一参数（如 `--max-pressure`）观察压强/推力曲线变化；
 - 对比解析通道与 Level-Set 通道的燃面曲线，理解网格离散误差；
 - 用 `srm thermo` 对比不同推进剂的热化学与比冲；
-- 用逆向设计从目标推力/总冲反推药型参数，体会可辨识性与病态性。
+- 用逆向设计从目标推力/总冲反推药型参数，体会可辨识性与病态性；
+- 用 `srm sensitivity` 对比管形（参数正交、可辨识）与星形（孔径/长度共线、
+  病态）的灵敏度矩阵，理解"为什么同一份燃面数据对不同药型的信息量不同"；
+- 用 `srm monte-carlo` 观察燃速系数与密度的分散如何传到总冲，建立"公差—性能"
+  的定量直觉。
 
 ## 8. 边界与免责
 

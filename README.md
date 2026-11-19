@@ -41,6 +41,18 @@ srm forward --template star_6_point --propellant ap_htpb_80 \
 # 逆向设计：弹道要求 → 反推药型参数
 srm inverse --template star_6_point --thrust 6000 --burn-time 4 --max-pressure 9e6
 
+# 逆向路径 A：二维端口轮廓 → 参数化药型参数
+srm fit-outline --points outline.csv --family slotted --outer-diameter 0.16 --length 0.6
+
+# 可辨识性/病态性：条件数 + VIF + frozen/inactive
+srm sensitivity --family star --outer-diameter 0.16
+
+# 参数扫描 / 蒙特卡洛不确定性（固定种子、可复现）
+srm sweep --template tube_simple --thrust 6000 --burn-time 4 \
+    --parameter max_chamber_pressure --values 6e6,7e6,8e6
+srm monte-carlo --template tube_simple --thrust 6000 --burn-time 4 \
+    --vary density:15 --vary burn_rate.a:2e-7 --samples 200 --seed 42
+
 # 示例工程（固定几何 / 指标驱动两类）
 PYTHONPATH=src python examples/run_case.py examples/projects/06_synthesis_star
 ```
@@ -74,7 +86,8 @@ print(r.performance.total_impulse, r.ballistics.peak_pressure, r.grain.segments[
 | 内弹道 | 零维平衡压强闭式解 + 瞬态充填 ODE |
 | 性能分析 | 推力、总冲、比冲、推力系数、装载分数、余药 |
 | 柱药主体 | 主体燃面/肉厚/余药/装载、长径比、工程强度校核 |
-| 逆向设计 | 几何逆向、燃面逆向、弹道逆向 + 优化器 |
+| 逆向设计 | 几何逆向（轮廓/点云拟合）、燃面逆向、弹道逆向 + 优化器 + 可辨识性（条件数/VIF） |
+| 批量研究 | 参数扫描、蒙特卡洛不确定性（固定种子可复现） |
 | 校核链路 | 弹道/性能/装药/结构/数值一致性检查 |
 | 报告/API | Markdown/HTML 报告 + 曲线、脚本 API、CLI |
 

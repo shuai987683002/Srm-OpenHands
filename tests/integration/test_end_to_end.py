@@ -130,3 +130,73 @@ def test_report_and_plots_written(tmp_path):
     assert paths["markdown"].exists()
     assert "Srm-Open design report" in paths["markdown"].read_text()
     assert paths["html"].exists()
+
+
+# --------------------------------------------------------------------------
+# new CLI commands: sensitivity / sweep / monte-carlo / fit-outline / pointcloud
+# --------------------------------------------------------------------------
+def test_cli_sensitivity_command(tmp_path):
+    import json
+
+    from srm_open.api.cli import main
+    out = tmp_path / "sens.json"
+    assert main(["sensitivity", "--family", "tube", "--outer-diameter", "0.16",
+                 "--json", str(out)]) == 0
+    data = json.loads(out.read_text())
+    assert data["condition_number"] is not None
+    assert "inner_diameter" in data["identifiable"]
+
+
+def test_cli_sweep_command(tmp_path):
+    import json
+
+    from srm_open.api.cli import main
+    out = tmp_path / "sweep.json"
+    assert main(["sweep", "--template", "tube_simple", "--thrust", "6000",
+                 "--burn-time", "4", "--parameter", "max_chamber_pressure",
+                 "--values", "6e6,8e6", "--json", str(out)]) == 0
+    data = json.loads(out.read_text())
+    assert len(data["samples"]) == 2
+    assert data["summary"]["average_thrust"]["n"] == 2
+
+
+def test_cli_monte_carlo_command(tmp_path):
+    import json
+
+    from srm_open.api.cli import main
+    out = tmp_path / "mc.json"
+    assert main(["monte-carlo", "--template", "tube_simple", "--thrust", "6000",
+                 "--burn-time", "4", "--vary", "density:10", "--samples", "5",
+                 "--seed", "1", "--json", str(out)]) == 0
+    data = json.loads(out.read_text())
+    assert data["seed"] == 1
+    assert data["summary"]["total_impulse"]["n"] == 5
+
+
+def test_cli_fit_outline_roundtrip(tmp_path):
+    import json
+
+    from srm_open.api.cli import main
+    from srm_open.geometry.analysis import port_polygon
+    sp = default_design_space(GrainFamily.TUBE, 0.16, (0.5, 0.5))
+    poly = port_polygon(sp.to_geometry(sp.to_vector({"inner_diameter": 0.06}, 0.5)).segments[0])
+    pts = tmp_path / "outline.csv"
+    pts.write_text("\n".join(f"{x},{y}" for x, y in poly.exterior.coords))
+    out = tmp_path / "fit.json"
+    assert main(["fit-outline", "--points", str(pts), "--family", "tube",
+                 "--outer-diameter", "0.16", "--length", "0.5",
+                 "--json", str(out)]) == 0
+    data = json.loads(out.read_text())
+    assert data["success"] is True
+    assert data["params"]["inner_diameter"] == pytest.approx(0.06, rel=2e-2)
+
+
+def test_cli_pointcloud_export(tmp_path):
+    from srm_open.api.cli import main
+    out = tmp_path / "grain.xyz"
+    assert main(["export-cad", "--template", "star_6_point",
+                 "--format", "pointcloud", "--out", str(out)]) == 0
+    lines = [ln for ln in out.read_text().splitlines() if not ln.startswith("#")]
+    assert len(lines) > 100
+    x, y, z = (float(v) for v in lines[0].split())
+    assert math.hypot(x, y) <= 0.081

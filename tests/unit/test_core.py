@@ -189,3 +189,209 @@ def test_equilibrium_pressure_closed_form():
                              a_t=1e-3)
     expected = (1770.0 * 1550.0 * 5e-5 * 0.1 / 1e-3) ** (1 / (1 - 0.35))
     assert p == pytest.approx(expected, rel=1e-9)
+
+
+# --------------------------------------------------------------------------
+# inverse: sensitivity / identifiability
+# --------------------------------------------------------------------------
+def _space(family, od=0.16, length=(0.5, 1.0)):
+    from srm_open.inverse.design import default_design_space
+    return default_design_space(family, od, length)
+
+
+def test_tube_parameters_are_independent():
+    # A tube's inner diameter and length enter A_b = pi*D_i*L multiplicatively,
+    # so both are recoverable from the curve -> VIF ~ 1, no confounding.
+    from srm_open.inverse.design import sensitivity_matrix
+    sp = _space(GrainFamily.TUBE)
+    info = sensitivity_matrix(sp, sp.to_vector({"inner_diameter": 0.06}, 0.8))
+    assert info["conditioning"] in ("well", "moderate")
+    assert all(p["vif"] is not None and p["vif"] < 10 for p in info["per_parameter"])
+    assert "inner_diameter" in info["identifiable"]
+
+
+def test_integer_counts_are_frozen_not_fitted():
+    from srm_open.inverse.design import sensitivity_matrix
+    sp = _space(GrainFamily.STAR)
+    x = sp.to_vector({"inner_diameter": 0.05, "point_diameter": 0.13,
+                      "point_half_angle": 25, "n_points": 6}, 0.8)
+    info = sensitivity_matrix(sp, x)
+    assert "n_points" in info["frozen"]
+    assert "n_points" not in info["parameters"]
+
+
+def test_degenerate_parameter_reported_inactive():
+    # a star point angle that the family clamps has zero influence; it must be
+    # excluded from the SVD so it does not masquerade as ill-conditioning
+    from srm_open.inverse.design import sensitivity_matrix
+    sp = _space(GrainFamily.STAR)
+    x = sp.to_vector({"inner_diameter": 0.05, "point_diameter": 0.13,
+                      "point_half_angle": 25, "n_points": 6}, 0.8)
+    info = sensitivity_matrix(sp, x)
+    verdicts = {p["name"]: p["verdict"] for p in info["per_parameter"]}
+    if "point_half_angle" in verdicts:
+        assert verdicts["point_half_angle"].startswith("inactive")
+
+
+def test_identifiability_flags_short_data_window():
+    from srm_open.inverse.design import identifiability
+    sp = _space(GrainFamily.TUBE)
+    x = sp.to_vector({"inner_diameter": 0.06}, 0.8)
+    # data only over the first 20% of the web
+    info = identifiability(sp, x, target_e=[0.0, 0.001], target_ab=[0.1, 0.1])
+    assert info["data_window"]["web_fraction_covered"] < 0.5
+    assert info["warnings"]
+
+
+# --------------------------------------------------------------------------
+# inverse: outline fitting (path A)
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("family,params,count_key", [
+    # 10 deg is inside the feasible band for these radii; a larger half-angle is
+    # clamped by the family (see test_star_angle_beyond_feasible_is_clamped)
+    (GrainFamily.STAR, {"inner_diameter": 0.05, "point_diameter": 0.13,
+                        "point_half_angle": 10, "n_points": 6}, "n_points"),
+    (GrainFamily.SLOTTED, {"inner_diameter": 0.05, "n_slots": 6,
+                           "slot_width": 0.012, "slot_depth": 0.04}, "n_slots"),
+    (GrainFamily.FINOCYL, {"inner_diameter": 0.05, "n_fins": 6,
+                           "fin_width": 0.012, "fin_length": 0.05}, "n_fins"),
+    (GrainFamily.WAGON_WHEEL, {"n_spokes": 6, "inner_diameter": 0.04,
+                               "spoke_width": 0.02, "spoke_length": 0.05}, "n_spokes"),
+])
+def test_outline_fit_recovers_family_parameters(family, params, count_key):
+    from srm_open.inverse.design import fit_outline
+    sp = _space(family, length=(0.6, 0.6))
+    poly = port_polygon(sp.to_geometry(sp.to_vector(params, 0.6)).segments[0])
+    res = fit_outline(list(poly.exterior.coords), family, 0.16, 0.6,
+                      method="nelder_mead", max_iter=400)
+    assert res["objective"] < 1e-8
+    assert int(res["params"][count_key]) == params[count_key]
+    for key, value in params.items():
+        if key == count_key:
+            continue
+        assert res["params"][key] == pytest.approx(value, rel=2e-2)
+
+
+def test_star_angle_beyond_feasible_is_clamped():
+    # documents the physics behind the 10 deg choice above: past ~14 deg the
+    # requested half-angle cannot be realised for these radii, so the outline
+    # stops changing and the parameter becomes unidentifiable
+    from srm_open.geometry.families import build_star
+    a = build_star({"n_points": 6, "inner_diameter": 0.05, "point_diameter": 0.13,
+                    "point_half_angle": 20}, 0.08)
+    b = build_star({"n_points": 6, "inner_diameter": 0.05, "point_diameter": 0.13,
+                    "point_half_angle": 30}, 0.08)
+    assert a.area == pytest.approx(b.area, rel=1e-9)
+
+
+def test_outline_fit_ignores_translation():
+    from srm_open.inverse.design import fit_outline
+    sp = _space(GrainFamily.TUBE, length=(0.5, 0.5))
+    poly = port_polygon(sp.to_geometry(sp.to_vector({"inner_diameter": 0.06}, 0.5)).segments[0])
+    shifted = [(x + 0.3, y - 0.2) for x, y in poly.exterior.coords]
+    res = fit_outline(shifted, GrainFamily.TUBE, 0.16, 0.5,
+                      method="nelder_mead", max_iter=400)
+    assert res["params"]["inner_diameter"] == pytest.approx(0.06, rel=2e-2)
+
+
+def test_outline_fit_rejects_degenerate_input():
+    from srm_open.inverse.design import fit_outline
+    with pytest.raises(ValueError):
+        fit_outline([(0.0, 0.0), (1.0, 1.0)], GrainFamily.TUBE, 0.16, 0.5)
+
+
+# --------------------------------------------------------------------------
+# studies: sweep and Monte-Carlo (FR-12)
+# --------------------------------------------------------------------------
+def _study_inputs():
+    from srm_open.io.templates import TemplateLibrary
+    from srm_open.models.requirements import RequirementSet
+    from srm_open.propellant.database import PropellantDB
+    grain = TemplateLibrary.load_default().get("tube_simple")
+    prop = PropellantDB.load_default().get("ap_htpb_80")
+    req = RequirementSet(name="study", thrust=6000.0, burn_time=4.0,
+                         max_chamber_pressure=9e6)
+    return grain, prop, req
+
+
+def test_sweep_is_monotonic_in_pressure_limit():
+    from srm_open.orchestration.study import sweep
+    grain, prop, req = _study_inputs()
+    study = sweep(req, grain, prop, "max_chamber_pressure", [6e6, 7e6, 8e6])
+    assert study.failed == 0
+    peaks = study.metric("peak_pressure")
+    assert peaks == sorted(peaks)
+    assert len(study.metric("average_thrust")) == 3
+
+
+def test_sweep_rejects_unknown_parameter():
+    from srm_open.orchestration.study import sweep
+    grain, prop, req = _study_inputs()
+    with pytest.raises(ValueError):
+        sweep(req, grain, prop, "not_a_field", [1.0])
+
+
+def test_monte_carlo_is_reproducible_for_a_seed():
+    from srm_open.orchestration.study import monte_carlo
+    grain, prop, req = _study_inputs()
+    vary = {"density": {"sigma": 15.0}, "burn_rate.a": {"sigma": 2e-7}}
+    a = monte_carlo(req, grain, prop, vary, n_samples=6, seed=7)
+    b = monte_carlo(req, grain, prop, vary, n_samples=6, seed=7)
+    c = monte_carlo(req, grain, prop, vary, n_samples=6, seed=8)
+    assert a.to_dict()["samples"] == b.to_dict()["samples"]
+    assert a.to_dict()["samples"] != c.to_dict()["samples"]
+
+
+def test_monte_carlo_spread_follows_input_spread():
+    from srm_open.orchestration.study import monte_carlo
+    grain, prop, req = _study_inputs()
+    tight = monte_carlo(req, grain, prop, {"density": {"sigma": 1.0}}, n_samples=12, seed=3)
+    loose = monte_carlo(req, grain, prop, {"density": {"sigma": 40.0}}, n_samples=12, seed=3)
+    assert loose.summary()["total_impulse"]["std"] > tight.summary()["total_impulse"]["std"]
+
+
+# --------------------------------------------------------------------------
+# coverage: every declared grain family is constructible and invertible
+# --------------------------------------------------------------------------
+PARAMETRIC_FAMILIES = [f for f in GrainFamily if f is not GrainFamily.CUSTOM_POLYGON]
+
+
+def test_every_grain_family_has_a_builder_and_a_design_space():
+    from srm_open.geometry.families import FAMILY_PARAMS
+    from srm_open.inverse.design import default_design_space
+    for family in GrainFamily:
+        assert family in FAMILY_PARAMS, f"{family.value} has no geometry builder"
+    for family in PARAMETRIC_FAMILIES:
+        space = default_design_space(family, 0.16, (0.5, 1.0))
+        assert space.parameters, f"{family.value} has no inverse design space"
+
+
+def test_custom_polygon_has_no_design_space():
+    from srm_open.inverse.design import default_design_space
+    with pytest.raises(ValueError, match="custom_polygon"):
+        default_design_space(GrainFamily.CUSTOM_POLYGON, 0.16, (0.5, 1.0))
+
+
+def test_every_family_builds_a_valid_geometry_with_burn_area():
+    from srm_open.inverse.design import default_design_space
+    for family in PARAMETRIC_FAMILIES:
+        space = default_design_space(family, 0.16, (0.5, 1.0))
+        params = {p.name: 0.5 * (p.low + p.high) for p in space.parameters}
+        seg = space.to_geometry(space.to_vector(params, 0.8)).segments[0]
+        a = analyze_segment(seg)
+        assert a.web_thickness > 0, f"{family.value} has no web"
+        if seg.burn_mode is BurnMode.END:
+            # solid end-burner: no port by construction, burns on the face
+            assert a.port_area == 0.0
+            assert burn_area_at(_grain(seg), 0.0) > 0
+        else:
+            poly = port_polygon(seg)
+            assert poly.is_valid and poly.area > 0, f"{family.value} port invalid"
+            assert burn_area_at(_grain(seg), 0.0) > 0
+
+
+def test_outline_fit_rejects_solid_end_burner():
+    from srm_open.inverse.design import fit_outline
+    with pytest.raises(ValueError, match="end-burning"):
+        fit_outline([(0.03, 0), (0, -0.03), (-0.03, 0), (0, 0.03)],
+                    GrainFamily.CYLINDRICAL, 0.16, 0.5)

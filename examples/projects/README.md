@@ -23,3 +23,6 @@
 # 06_synthesis_star          requirement-only -> synthesised star grain
 # 07_synthesis_tube          requirement-only -> synthesised tube grain
 
+# 08_inverse_identifiability   path A (outline->params) + sweep + Monte-Carlo
+#                            run: PYTHONPATH=src python \
+#                                 examples/projects/08_inverse_identifiability/study.py

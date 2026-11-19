@@ -20,6 +20,9 @@ PYTHONPATH=src python -m pytest tests/verification -m verification -q -s
 | V4 | 燃面 | 解析通道 vs 网格 Level-Set 通道 | 双通道互校 | 通过（最大偏差 < 8%） |
 | V5 | 结构 | 轴对称 FEM vs Lamé 厚壁解 | 解析解 + 网格收敛 | 通过（< 0.4%） |
 | V6 | 内弹道 | 平衡压强闭式解、质量守恒残差 | 解析解 | 通过（残差 ~1e-15） |
+| V7 | 逆向 A | 二维轮廓 → 药型参数（star/slotted/finocyl/wagon-wheel） | 合成轮廓往返 | 通过（目标函数 < 1e-8） |
+| V8 | 逆向诊断 | 灵敏度矩阵、条件数、VIF、frozen/inactive | 与真实拟合对照 | 通过（判据与拟合一致） |
+| V9 | 批量研究 | 蒙特卡洛可复现性、扫描单调性 | 同种子逐位一致 | 通过 |
 
 ## 2. 详细结果（运行实测）
 
@@ -70,6 +73,44 @@ PYTHONPATH=src python -m pytest tests/verification -m verification -q -s
 - 平衡压强闭式解 p_c = (ρ_p·c*·a·A_b/A_t)^(1/(1−n))：计算 2.3176 MPa
   与解析 2.3176 MPa 一致（< 1e-9）。
 - 质量守恒残差：max|ṁ_gen − ṁ_out| / ṁ_out = 8.8e-16（机器精度）。
+
+### V7 逆向路径 A（轮廓 → 参数）
+
+由各族参数生成端口轮廓（合成真值），再交给 `fit_outline` 反推。无噪声时：
+
+| 族 | 目标函数 | 瓣数 | 连续参数相对误差 |
+|---|---|---|---|
+| star | 1.8e-23 | 6/6 | 逐位恢复 |
+| slotted | 5.7e-21 | 6/6 | 逐位恢复 |
+| finocyl | 2.1e-22 | 6/6 | 逐位恢复 |
+| wagon_wheel | 3.9e-25 | 6/6 | 逐位恢复 |
+
+瓣数由 `r(θ)` 半径剖面的角向谐波确定；若只用面积/周长/二阶矩三个标量，
+瓣数近乎退化（会落到相邻整数），这一点由回归测试固定。
+对轮廓加 0.1 mm 噪声后目标函数约 2.6e-4，连续参数相对误差 < 1%。
+
+### V8 逆向可辨识性（灵敏度 / 条件数 / VIF）
+
+对星形药型在标称点构造 `A_b(e)` 有限差分灵敏度矩阵：
+
+| 参数 | 相对灵敏度 | VIF | 判据 |
+|---|---|---|---|
+| inner_diameter | 0.066 | 62.2 | confounded |
+| point_diameter | 1.000 | 1.21 | identifiable |
+| point_half_angle | 0 | — | inactive（该半径下被夹持） |
+| length | 0.075 | 62.8 | confounded |
+
+条件数 ≈ 159（ill）。该判据与真实拟合对照一致：用 Nelder-Mead 从真值出发拟合
+`A_b(e)`，`inner_diameter` 与 `length` 只能确定其组合，而 `point_diameter` 可独立
+恢复——这正是"燃面曲线难以唯一分离孔径与长度"的教科书结论。管形药型则两参数
+VIF≈1、条件数≈13（moderate），可独立辨识。
+
+### V9 批量研究（扫描 / 蒙特卡洛）
+
+- 扫描：峰值压强随压强上限 6→7→8 MPa 单调上升（5.39→6.29→7.19 MPa）。
+- 蒙特卡洛：同种子两次运行 `samples` 逐位一致，不同种子不同；输入扰动越大，
+  总冲标准差越大（单调：密度 σ=1 kg/m³ → 15 N·s；σ=40 → 616 N·s）。默认
+  `seed=12345`。
 
 ## 3. 端到端设计校核（DesignResult.verification）
 

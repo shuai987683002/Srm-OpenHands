@@ -98,9 +98,67 @@ srm inverse --template star_6_point --thrust 6000 --burn-time 4 --max-pressure 9
 srm reverse --project examples/projects/02_star_neutral/project.yaml
 ```
 
-## `srm export-cad --template ID --format {stl,step} --out PATH`
+## `srm fit-outline --points FILE --family F --outer-diameter D --length L`
 
-导出药柱几何（`stl` 纯 Python；`step` 需可选依赖 `cadquery`）。
+**逆向路径 A**：由实测/图纸的二维药型端口轮廓（CSV 或空白分隔的 `x,y` 点，
+单位 m）反推参数化药型参数 θ。
+
+拟合匹配三个与位置无关的描述量——端口**面积**、**周长**、**径向二阶矩**——
+再加上 `r(θ)` 半径剖面（含角向谐波），因此无需点对点对应，且能正确区分
+6 瓣与 7 瓣。瓣数（`n_points`/`n_slots`/`n_fins`/`n_spokes`）由角向谐波直接
+确定并在候选集上枚举，连续参数在内层优化。
+
+```bash
+srm fit-outline --points outline.csv --family slotted \
+    --outer-diameter 0.16 --length 0.6 --json fit.json
+```
+
+输出恢复的 θ、目标/拟合描述量与相对误差。对合成轮廓可达 1e-12 量级。
+
+## `srm sensitivity --family F --outer-diameter D [--length L] [--params JSON]`
+
+**逆向可辨识性/病态性**（方案 §5.4、assumptions.md #19）：对燃面 `A_b(e)` 做
+有限差分灵敏度矩阵，给出：
+
+- **奇异值/条件数**（well < 10 < moderate < 100 < ill）；
+- 每个连续参数的 **VIF（方差膨胀因子）**：VIF≈1 表示与其他参数正交、可独立
+  辨识；VIF>10 判为 `confounded`（相互抵消）；
+- **frozen**：整数计数（`n_points` 等）不可连续扰动，结构上无法由光滑 `A_b`
+  拟合恢复；
+- **inactive**：在当前工作点无影响的参数（如被族几何夹持的角度），从 SVD 中
+  剔除，避免误报为奇异。
+
+```bash
+srm sensitivity --family star --outer-diameter 0.16
+```
+
+## `srm sweep --parameter P --values a,b,c [--target requirement|propellant]`
+
+固定药型，扫描**一个**输入（`RequirementSet` 字段或推进剂标量，支持点号路径
+如 `burn_rate.a`），输出每个取值的性能与聚合统计（mean/std/min/max/p05/p95）。
+
+```bash
+srm sweep --template tube_simple --thrust 6000 --burn-time 4 \
+    --parameter max_chamber_pressure --values 6e6,7e6,8e6
+srm sweep --template tube_simple --thrust 6000 \
+    --parameter density --values 1700,1750,1800 --target propellant
+```
+
+## `srm monte-carlo --vary PATH:SIGMA[:TARGET] [--samples N] [--seed S]`
+
+不确定性传播（FR-12）：按正态分布扰动若干输入，把每条样本跑**同一**正向流水
+线，输出各性能量的均值/标准差/分位区间。`--seed` 保证可复现（NFR-2）；输入
+按独立量处理（无相关矩阵）。
+
+```bash
+srm monte-carlo --template tube_simple --thrust 6000 --burn-time 4 \
+    --vary density:15 --vary burn_rate.a:2e-7 --samples 200 --seed 42
+```
+
+## `srm export-cad --template ID --format {stl,step,pointcloud} --out PATH`
+
+导出药柱几何：`stl`（纯 Python）、`step`（需 `cadquery`）、`pointcloud`
+（ASCII `x y z` 点云，采样外壁/端口壁，确定性、可复现）。
 
 ## `srm save-project --template ID --out PATH`
 

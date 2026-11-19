@@ -107,6 +107,43 @@ def grain_to_stl(grain: GrainGeometry, path: str | Path, segments_per_circle: in
     return path
 
 
+def grain_to_pointcloud(grain: GrainGeometry, path: str | Path,
+                        n_axial: int = 20, n_radial: int = 64) -> Path:
+    """Export the grain *propellant* volume as a plain ``x y z`` point cloud.
+
+    Points are sampled on the outer wall, the port wall and both end faces so the
+    cloud outlines the solid a designer can re-import or compare against a scan.
+    Sampling is stratified (fixed axial/angular stations), not random, so the
+    file is deterministic.  Output is a header-less ASCII ``x y z`` triple per
+    line, readable by MeshLab / CloudCompare / numpy.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pts: list[tuple[float, float, float]] = []
+    z = 0.0
+    for seg in grain.segments:
+        outer, port = _segment_solids(seg)
+        z0, z1 = z, z + seg.length
+        zs = [z0 + (z1 - z0) * k / max(n_axial - 1, 1) for k in range(n_axial)]
+        polys = [outer]
+        if not port.is_empty:
+            polys.extend(port.geoms if port.geom_type == "MultiPolygon" else [port])
+        for zz in zs:
+            for poly in polys:
+                coords = list(poly.exterior.coords)[:-1]
+                if not coords:
+                    continue
+                step = max(len(coords) // n_radial, 1)
+                for (x, y) in coords[::step]:
+                    pts.append((x, y, zz))
+        z = z1
+    with open(path, "w", encoding="ascii") as fh:
+        fh.write(f"# srm_open point cloud: {len(pts)} points (x y z, metres)\n")
+        for x, y, zz in pts:
+            fh.write(f"{x:.6e} {y:.6e} {zz:.6e}\n")
+    return path
+
+
 def _extrude_polygon_into(poly, z0: float, z1: float, out: list, reverse: bool) -> None:
     coords = list(poly.exterior.coords)[:-1]
     n = len(coords)

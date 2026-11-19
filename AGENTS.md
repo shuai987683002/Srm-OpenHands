@@ -42,8 +42,10 @@ src/srm_open/
   performance/   thrust/impulse/Isp integration
   grain_body/    cylindrical main-body calculation (web, sliver, loading)
   integrity/     Lame analytical + axisymmetric FEM (B-bar, no volumetric locking)
-  inverse/       design space, inverse_design, fit_burn_area, analyze_existing_grain, optimizers
-  orchestration/ requirements completion, forward pipeline, grain synthesis
+  inverse/       design space, inverse_design, fit_burn_area, fit_outline,
+                 analyze_existing_grain, sensitivity_matrix/identifiability, optimizers
+  orchestration/ requirements completion, forward pipeline, grain synthesis,
+                 study.py (sweep / monte_carlo)
   verification/  design-level checks
   io/            project save/load, template library
   report/        markdown/HTML report + PNG plots
@@ -94,6 +96,27 @@ docs/            plan, architecture.md, theory/, user_guide/, verification/
 - **`inverse_convergence`** is judged on the achieved objective residual, not the
   optimiser's `success` flag (Nelder-Mead reports `success=False` on simplex
   shrink even when the physical targets are met).
+- **Three inverse paths, do not conflate them**: A = `fit_outline` (2-D port
+  outline / point cloud -> theta), B = `fit_burn_area` (A_b(e) -> theta), C =
+  `inverse_design` (indicators -> theta). A only sees one cross-section, so the
+  axial length must be supplied and is held fixed.
+- **`fit_outline` identifies the lobe count from the angular harmonic signature
+  of `r(theta)`, not from area/perimeter/moment** — those three scalars alone are
+  near-degenerate in lobe count (a 6-lobe and 7-lobe port can match them). The
+  integer count is enumerated on the outside, continuous parameters fitted
+  inside (Nelder-Mead). Do not "simplify" it to a pure 3-scalar objective.
+- **`sensitivity_matrix` excludes `frozen` (integer counts) and `inactive`
+  (zero-response) parameters from the SVD**; a single dead parameter otherwise
+  reports the whole set as singular. VIF > 10 means `confounded` (the parameters
+  trade off — e.g. star bore diameter vs length, both scaling A_b). Verified
+  against an actual fit in `test_v8_identifiability_matches_recovery`.
+- **Star `point_half_angle` is clamped** to the feasible band for the given radii
+  (~14 deg for r_valley=25 mm / r_tip=65 mm); beyond it the outline stops
+  changing and the parameter is correctly reported `inactive`. Pick test angles
+  inside the band.
+- **`study.sweep` / `monte_carlo` take the same forward model** as `forward`; MC
+  draws are seeded (`seed=12345` default) so runs are bit-identical. Inputs are
+  treated as independent (no correlation matrix yet).
 - **FEM must stay locking-free**: `integrity/fem.py` uses a mean-dilatation
   (B-bar) split. Do not revert to the plain `B.T @ D @ B` form — it locks at
   propellant-like `nu ~ 0.5` and gives mesh-dependent garbage.
@@ -105,11 +128,19 @@ docs/            plan, architecture.md, theory/, user_guide/, verification/
 
 ## Verification status
 
-All of `tests/` passes. V&V cases (V1–V6) and their recorded results are in
+All of `tests/` passes (88 tests). V&V cases (V1–V9) and their recorded results are in
 `docs/verification/verification_report.md`: thermochemistry vs Cantera (<0.1%),
 nozzle isentropic identities, tube geometry closed forms, two-channel burn-area
 crosscheck, FEM vs Lamé (<0.4%), equilibrium pressure closed form + mass
-balance (~1e-15).
+balance (~1e-15), inverse path-A round trip (objective < 1e-8 on 4 families),
+identifiability verdicts cross-checked against real fits, and Monte-Carlo
+reproducibility. Coverage tests assert every `GrainFamily` has a geometry
+builder and (except `custom_polygon`, which is outline data rather than a
+parametric family) an inverse design space that builds a valid port.
+
+Note: `cylindrical` is an end-burning solid grain — its design space has only
+`length` and forces `BurnMode.END`. Asking it for a port outline (`fit_outline`)
+raises rather than silently returning an empty port.
 
 ## Boundaries
 

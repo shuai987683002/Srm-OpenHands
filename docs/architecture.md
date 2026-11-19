@@ -36,8 +36,8 @@
 | `performance/` | 性能积分 | 内弹道 + 喷管 | `PerformanceResult`（F, I_t, I_sp…） |
 | `grain_body/` | 柱药主体计算 | 药柱 + 推进剂 | `GrainBodyResult`（肉厚、余药、装载、长径比） |
 | `integrity/` | 结构校核 | 几何 + 材料 + p | Lamé 解 / 轴对称 FEM 结果 |
-| `inverse/` | 逆向设计 | 指标 / 燃面数据 / 现有药型 | `DesignResult` 或参数估计 |
-| `orchestration/` | 指标补全 + 正向流水线 + 药柱合成 | 指标 + 推进剂 | `DesignResult` |
+| `inverse/` | 逆向设计（几何 / 燃面 / 弹道三路径）+ 可辨识性 | 指标 / 燃面数据 / 轮廓 / 现有药型 | `DesignResult`、θ 估计、灵敏度矩阵 |
+| `orchestration/` | 指标补全 + 正向流水线 + 药柱合成 + 批量研究（扫描/蒙特卡洛） | 指标 + 推进剂 | `DesignResult`、`StudyResult` |
 | `verification/` | 设计级校核链路 | `DesignResult` | 命名检查项（pass/fail + 残差） |
 | `io/` | 项目读写 + 模板库 | `project.yaml` / 模板 | 项目对象 / `GrainGeometry` |
 | `report/` | 报告与曲线 | `DesignResult` | Markdown / HTML / PNG |
@@ -84,9 +84,12 @@ RequirementSet ─► requirements.complete() ─► (m_p, A_t, p_design, family
 ```
 目标（推力/总冲/工作时间/比冲） 或 现有药型几何 或 燃面数据 A_b(t)
         │
-        ├─ 几何逆向：analyze_existing_grain() ─► 几何特征 + A_b(e) 拟合
-        ├─ 燃面逆向：fit_burn_area(A_b(t)) ─► 燃速/肉厚/药型参数
-        └─ 弹道逆向：inverse_design() ─► 设计空间优化 ─► GrainGeometry
+        ├─ 几何逆向 A：fit_outline(轮廓/点云) ─► θ（面积+周长+径向二阶矩+半径剖面）
+        ├─ 几何逆向 A'：analyze_existing_grain() ─► 现有药型特征 + A_b(e)
+        ├─ 燃面逆向 B：fit_burn_area(A_b(e)) ─► 药型参数（整数计数外层枚举）
+        └─ 弹道逆向 C：inverse_design() ─► 设计空间优化 ─► GrainGeometry
+                                   │
+                     identifiability()：灵敏度矩阵 · 条件数 · VIF · frozen/inactive
                                    │
                                    ▼
                         与正向共享同一内核 ─► DesignResult

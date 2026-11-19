@@ -194,3 +194,78 @@ def test_v6_burn_area_over_throat_and_mass_balance():
     devs = [abs(g - o) / o for g, o in zip(b.mass_generated, b.mass_discharged) if o > 0]
     print(f"\n[V6] mass-balance residual: max={max(devs):.2e}")
     assert max(devs) < 1e-6
+
+
+# ---------------------------------------------------------------------------
+# V7 inverse path A: outline -> parameters round trip
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("family,params,count_key", [
+    (GrainFamily.STAR, {"inner_diameter": 0.05, "point_diameter": 0.13,
+                        "point_half_angle": 10, "n_points": 6}, "n_points"),
+    (GrainFamily.SLOTTED, {"inner_diameter": 0.05, "n_slots": 6,
+                           "slot_width": 0.012, "slot_depth": 0.04}, "n_slots"),
+    (GrainFamily.FINOCYL, {"inner_diameter": 0.05, "n_fins": 6,
+                           "fin_width": 0.012, "fin_length": 0.05}, "n_fins"),
+    (GrainFamily.WAGON_WHEEL, {"n_spokes": 6, "inner_diameter": 0.04,
+                               "spoke_width": 0.02, "spoke_length": 0.05}, "n_spokes"),
+])
+def test_v7_outline_roundtrip(family, params, count_key):
+    from srm_open.geometry.analysis import port_polygon
+    from srm_open.inverse.design import default_design_space, fit_outline
+    space = default_design_space(family, 0.16, (0.6, 0.6))
+    poly = port_polygon(space.to_geometry(space.to_vector(params, 0.6)).segments[0])
+    res = fit_outline(list(poly.exterior.coords), family, 0.16, 0.6,
+                      method="nelder_mead", max_iter=400)
+    print(f"\n[V7] {family.value}: objective={res['objective']:.2e} "
+          f"lobes={int(res['params'][count_key])}/{params[count_key]}")
+    assert res["objective"] < 1e-8
+    assert int(res["params"][count_key]) == params[count_key]
+
+
+# ---------------------------------------------------------------------------
+# V8 identifiability verdicts must agree with an actual fit
+# ---------------------------------------------------------------------------
+def test_v8_identifiability_matches_recovery():
+    """Tube: both parameters separable.  Star: bore and length confounded."""
+    from srm_open.inverse.design import default_design_space, sensitivity_matrix
+    tube = default_design_space(GrainFamily.TUBE, 0.16, (0.5, 1.0))
+    ti = sensitivity_matrix(tube, tube.to_vector({"inner_diameter": 0.06}, 0.8))
+    print(f"\n[V8] tube: cond={ti['condition_number']:.2f} "
+          f"vif={[p['vif'] for p in ti['per_parameter']]}")
+    assert all(p["vif"] < 10 for p in ti["per_parameter"])
+
+    star = default_design_space(GrainFamily.STAR, 0.16, (0.5, 1.0))
+    x = star.to_vector({"inner_diameter": 0.05, "point_diameter": 0.13,
+                        "point_half_angle": 25, "n_points": 6}, 0.8)
+    si = sensitivity_matrix(star, x)
+    verdicts = {p["name"]: p["verdict"] for p in si["per_parameter"]}
+    print(f"\n[V8] star: cond={si['condition_number']:.1f} "
+          f"frozen={si['frozen']} verdicts={verdicts}")
+    assert "n_points" in si["frozen"]
+    assert verdicts["point_diameter"] == "identifiable"
+    assert verdicts["inner_diameter"].startswith("confounded")
+    assert verdicts["length"].startswith("confounded")
+
+
+# ---------------------------------------------------------------------------
+# V9 batch studies: reproducibility and monotonicity
+# ---------------------------------------------------------------------------
+def test_v9_monte_carlo_reproducible_and_monotone():
+    from srm_open.io.templates import TemplateLibrary
+    from srm_open.models.requirements import RequirementSet
+    from srm_open.orchestration.study import monte_carlo
+    from srm_open.propellant.database import PropellantDB
+    grain = TemplateLibrary.load_default().get("tube_simple")
+    prop = PropellantDB.load_default().get("ap_htpb_80")
+    req = RequirementSet(name="v9", thrust=6000.0, burn_time=4.0,
+                         max_chamber_pressure=9e6)
+    vary = {"density": {"sigma": 15.0}, "burn_rate.a": {"sigma": 2e-7}}
+    a = monte_carlo(req, grain, prop, vary, n_samples=8, seed=12345)
+    b = monte_carlo(req, grain, prop, vary, n_samples=8, seed=12345)
+    tight = monte_carlo(req, grain, prop, {"density": {"sigma": 1.0}}, n_samples=8, seed=5)
+    loose = monte_carlo(req, grain, prop, {"density": {"sigma": 40.0}}, n_samples=8, seed=5)
+    print(f"\n[V9] same-seed identical={a.to_dict()['samples'] == b.to_dict()['samples']}, "
+          f"std(tight)={tight.summary()['total_impulse']['std']:.0f} "
+          f"std(loose)={loose.summary()['total_impulse']['std']:.0f}")
+    assert a.to_dict()["samples"] == b.to_dict()["samples"]
+    assert loose.summary()["total_impulse"]["std"] > tight.summary()["total_impulse"]["std"]

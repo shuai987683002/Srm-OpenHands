@@ -2,8 +2,10 @@
 
 from .forward import design_chamber_pressure, forward_design, size_throat_from_pressure
 from .requirements import ConsistencyReport, check_and_complete
+from .study import StudyResult, StudySample, monte_carlo, sweep
 
 __all__ = [
     "design_chamber_pressure", "forward_design", "size_throat_from_pressure",
     "ConsistencyReport", "check_and_complete",
+    "StudyResult", "StudySample", "sweep", "monte_carlo",
 ]

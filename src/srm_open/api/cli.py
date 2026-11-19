@@ -8,7 +8,11 @@ Commands
   srm thermo      --propellant P [--pressure p]
   srm templates / srm propellants
   srm reverse     --project FILE            (reverse-engineer an existing grain)
-  srm export-cad  --template T --format stl --out FILE
+  srm fit-outline --points FILE --family F  (path A: outline -> parameters)
+  srm sensitivity --family F --outer-diameter D  (identifiability / conditioning)
+  srm sweep       --parameter P --values a,b,c    (parametric sweep)
+  srm monte-carlo --vary PATH:SIGMA [--vary ...]  (uncertainty propagation)
+  srm export-cad  --template T --format stl|step|pointcloud --out FILE
 """
 
 from __future__ import annotations
@@ -18,13 +22,26 @@ import json
 import sys
 from pathlib import Path
 
-from ..geometry.sketch import geometry_backend_available, grain_to_step, grain_to_stl
-from ..inverse.design import analyze_existing_grain, default_design_space, inverse_design
+from ..geometry.sketch import (
+    geometry_backend_available,
+    grain_to_pointcloud,
+    grain_to_step,
+    grain_to_stl,
+)
+from ..inverse.design import (
+    analyze_existing_grain,
+    default_design_space,
+    fit_outline,
+    identifiability,
+    inverse_design,
+)
 from ..io.project import load_project, save_project, save_result_json
 from ..io.templates import TemplateLibrary
 from ..models.design_result import DesignResult
+from ..models.grain import GrainFamily
 from ..models.requirements import RequirementSet
 from ..orchestration.forward import forward_design
+from ..orchestration.study import monte_carlo, sweep
 from ..propellant.database import PropellantDB
 from ..report import write_report
 from .facade import evaluate_propellant_thermo, get_propellant
@@ -139,10 +156,98 @@ def cmd_export_cad(args) -> int:
             print("STEP export needs cadquery (pip install cadquery)", file=sys.stderr)
             return 2
         p = grain_to_step(grain, out)
+    elif args.format == "pointcloud":
+        p = grain_to_pointcloud(grain, out)
     else:
         print("unknown format %s" % args.format, file=sys.stderr)
         return 2
     print("wrote %s" % p)
+    return 0
+
+
+def _emit(payload: dict, json_path: str | None) -> None:
+    text = json.dumps(payload, indent=2, default=str)
+    if json_path:
+        Path(json_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(json_path).write_text(text, encoding="utf-8")
+        print("wrote %s" % json_path)
+    else:
+        print(text)
+
+
+def cmd_sensitivity(args) -> int:
+    family = GrainFamily(args.family)
+    od = args.outer_diameter
+    # a fixed --length pins the length parameter; otherwise scan a plausible
+    # L/D window so the length itself is assessed for identifiability too
+    lr = (args.length, args.length) if args.length is not None else (2.0 * od, 8.0 * od)
+    length = args.length if args.length is not None else 4.0 * od
+    space = default_design_space(family, od, lr)
+    if args.params:
+        params = json.loads(args.params)
+    else:
+        params = {p.name: 0.5 * (p.low + p.high) for p in space.parameters}
+    x = space.to_vector(params, length)
+    info = identifiability(space, x)
+    info.pop("matrix", None)
+    info.pop("e_grid", None)
+    _emit(info, args.json)
+    return 0
+
+
+def _study_common(args):
+    grain = TemplateLibrary.load_default().geometry(args.template)
+    prop = PropellantDB.load_default().get(args.propellant)
+    return grain, prop, _req_from_args(args)
+
+
+def cmd_sweep(args) -> int:
+    grain, prop, req = _study_common(args)
+    values = [float(v) for v in args.values.split(",") if v.strip()]
+    study = sweep(req, grain, prop, args.parameter, values, target=args.target)
+    _emit(study.to_dict(), args.json)
+    return 0
+
+
+def cmd_monte_carlo(args) -> int:
+    grain, prop, req = _study_common(args)
+    variations: dict[str, dict] = {}
+    for spec in args.vary:
+        parts = spec.split(":")
+        if len(parts) < 2:
+            print("--vary expects PATH:SIGMA[:TARGET]", file=sys.stderr)
+            return 2
+        entry: dict = {"sigma": float(parts[1])}
+        if len(parts) > 2:
+            entry["target"] = parts[2]
+        variations[parts[0]] = entry
+    if not variations:
+        print("give at least one --vary PATH:SIGMA", file=sys.stderr)
+        return 2
+    study = monte_carlo(req, grain, prop, variations,
+                        n_samples=args.samples, seed=args.seed)
+    _emit(study.to_dict(), args.json)
+    return 0
+
+
+def cmd_fit_outline(args) -> int:
+    raw = Path(args.points).read_text(encoding="utf-8")
+    pts: list[tuple[float, float]] = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.replace(",", " ").split()
+        if len(parts) < 2:
+            continue
+        pts.append((float(parts[0]), float(parts[1])))
+    if len(pts) < 3:
+        print("need >= 3 outline points", file=sys.stderr)
+        return 2
+    res = fit_outline(pts, GrainFamily(args.family), args.outer_diameter, args.length,
+                      method=args.optimizer, max_iter=args.max_iter)
+    res.pop("geometry", None)
+    _emit(res, args.json)
     return 0
 
 
@@ -223,9 +328,51 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("export-cad", help="export grain geometry")
     sp.add_argument("--template", required=True)
-    sp.add_argument("--format", default="stl", choices=["stl", "step"])
+    sp.add_argument("--format", default="stl", choices=["stl", "step", "pointcloud"])
     sp.add_argument("--out", required=True)
     sp.set_defaults(func=cmd_export_cad)
+
+    sp = sub.add_parser("sensitivity",
+                        help="inverse identifiability: condition number, VIF, frozen parameters")
+    sp.add_argument("--family", required=True)
+    sp.add_argument("--outer-diameter", type=float, required=True)
+    sp.add_argument("--length", type=float, default=None, help="segment length [m]")
+    sp.add_argument("--params", default=None,
+                    help="JSON dict of family parameters; mid-range if omitted")
+    sp.add_argument("--json", default=None)
+    sp.set_defaults(func=cmd_sensitivity)
+
+    sp = sub.add_parser("sweep", help="parametric sweep of one input across values")
+    add_common(sp)
+    sp.add_argument("--parameter", required=True,
+                    help="RequirementSet field or propellant path (e.g. burn_rate.a)")
+    sp.add_argument("--values", required=True,
+                    help="comma-separated values")
+    sp.add_argument("--target", default="requirement",
+                    choices=["requirement", "propellant"])
+    sp.set_defaults(func=cmd_sweep)
+
+    sp = sub.add_parser("monte-carlo", help="Monte-Carlo uncertainty propagation")
+    add_common(sp)
+    sp.add_argument("--vary", action="append", default=[],
+                    metavar="PATH:SIGMA[:TARGET]",
+                    help="input path, standard deviation, optional target "
+                         "(requirement|propellant); repeatable")
+    sp.add_argument("--samples", type=int, default=100)
+    sp.add_argument("--seed", type=int, default=12345)
+    sp.set_defaults(func=cmd_monte_carlo)
+
+    sp = sub.add_parser("fit-outline",
+                        help="reverse path A: fit family parameters to a 2D port outline")
+    sp.add_argument("--points", required=True,
+                    help="CSV/whitespace file of x,y outline points [m]")
+    sp.add_argument("--family", required=True)
+    sp.add_argument("--outer-diameter", type=float, required=True)
+    sp.add_argument("--length", type=float, required=True, help="segment length [m]")
+    sp.add_argument("--optimizer", default="nelder_mead")
+    sp.add_argument("--max-iter", type=int, default=400)
+    sp.add_argument("--json", default=None)
+    sp.set_defaults(func=cmd_fit_outline)
 
     sp = sub.add_parser("save-project", help="write a project file")
     add_common(sp)
