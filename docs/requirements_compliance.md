@@ -9,7 +9,7 @@
 复现全部证据：
 
 ```bash
-PYTHONPATH=src pytest -q                      # 功能/回归测试（134 项）
+PYTHONPATH=src pytest -q                      # 功能/回归测试（140 项）
 PYTHONPATH=src pytest -m verification -q -s   # 9 个校核算例 V1–V9
 PYTHONPATH=src pytest -m performance -q -s    # NFR-3 性能预算
 ```

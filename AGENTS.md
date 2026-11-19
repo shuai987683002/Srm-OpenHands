@@ -148,7 +148,7 @@ docs/            plan, architecture.md, theory/, user_guide/, verification/
 
 ## Verification status
 
-All of `tests/` passes (134 tests: unit + integration + verification +
+All of `tests/` passes (140 tests: unit + integration + verification +
 performance). The REST and 3-D preview suites `importorskip` FastAPI /
 matplotlib, so they skip rather than fail when the optional extras are absent. V&V cases (V1–V9) and their recorded results are in
 `docs/verification/verification_report.md`: thermochemistry vs Cantera (<0.1%),

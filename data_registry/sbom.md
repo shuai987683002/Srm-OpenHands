@@ -13,6 +13,7 @@ and compatible with this project's Apache-2.0 license.
 | scipy | 1.18.1 | BSD-3-Clause | ODE solver, optimisation |
 | pydantic | 2.14.3 | MIT | data models / validation |
 | PyYAML | 6.0.3 | MIT | config, database, project files |
+| Jinja2 | 3.1.6 | BSD-3-Clause | report templates (Markdown/HTML/LaTeX) |
 | shapely | 2.2.0 | BSD-3-Clause | port polygons, Minkowski burn-back |
 
 > `shapely` is listed as required because the geometric burn-back channel (the
@@ -33,6 +34,7 @@ and compatible with this project's Apache-2.0 license.
 | httpx | 0.28.1 | BSD-3-Clause | REST tests (TestClient transport) |
 | jsonschema | 4.26.0 | MIT | validating examples against `data/schema/` |
 | pytest | 9.2.0 | MIT | test runner |
+| pytest-cov | 7.1.0 | MIT | coverage measurement |
 | ruff | — | MIT | linter |
 
 ## Data
