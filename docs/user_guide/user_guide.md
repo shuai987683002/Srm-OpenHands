@@ -69,6 +69,46 @@ r = design_from_template("tube_simple", "ap_htpb_80",
 print(r.verification.checks)
 ```
 
+## 3.1 REST 服务（可选）
+
+需要给教学前端或实验室看板提供 HTTP 接口时，装上可选依赖并启动：
+
+```bash
+pip install -e ".[api]"
+uvicorn srm_open.api.rest:app --port 8000     # 交互文档：http://127.0.0.1:8000/docs
+```
+
+```bash
+# 正向设计（摘要视图，只回集成指标，适合看板）
+curl -s -X POST 'http://127.0.0.1:8000/design?summary=true' \
+  -H 'Content-Type: application/json' \
+  -d '{"thrust":8000,"burn_time":4,"max_chamber_pressure":9000000,
+       "outer_diameter":0.16,"length_ratio":5,"thrust_profile":"neutral"}'
+
+# 其余端点：GET /health、/templates、/propellants、/propellants/{id}/thermo
+```
+
+不带 `?summary=true` 时返回完整 `DesignResult`（含逐步时序）。未知模板/推进剂返回
+404，参数非法返回 422。该层不含任何数值逻辑，只是 `api/facade.py` 的薄封装，
+因此不装 FastAPI 也不影响内核与 CLI。
+
+## 3.2 三维预览（可选）
+
+报告会自动附带 `grain_3d.png`（药柱外形与内孔）和 `burnback_3d.png`（燃面退移示意）。
+单独出图：
+
+```python
+from srm_open.io.templates import TemplateLibrary
+from srm_open.viz import plot_grain_3d, burn_modes_summary
+
+g = TemplateLibrary.load_default().geometry("star_6_point")
+plot_grain_3d(g, "grain_3d.png")
+print(burn_modes_summary(g))     # 每个分段哪一面在燃烧
+```
+
+需要 `pip install -e ".[viz]"`（matplotlib）。这是教学示意图；精确几何请走
+`srm export-cad` 的 STEP/STL 导出。
+
 ## 4. 示例工程
 
 ```bash

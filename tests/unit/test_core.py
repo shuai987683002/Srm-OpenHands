@@ -452,6 +452,19 @@ def test_requirements_note_thrust_vs_average_thrust():
     assert any("average thrust" in n for n in rep.notes)
 
 
+def test_requirements_reject_unknown_thrust_profile():
+    """A typo must not silently fall through to the "no preference" branch."""
+    import pytest
+    from pydantic import ValidationError
+
+    from srm_open.models.requirements import RequirementSet
+
+    for ok in ("neutral", "progressive", "regressive", None):
+        assert RequirementSet(thrust=1000.0, thrust_profile=ok).thrust_profile == ok
+    with pytest.raises(ValidationError, match="thrust_profile"):
+        RequirementSet(thrust=1000.0, thrust_profile="nutral")
+
+
 # --------------------------------------------------------------------------
 # FR-4: propellant database is data-driven and user-extensible
 # --------------------------------------------------------------------------

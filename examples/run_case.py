@@ -46,7 +46,9 @@ def _run(case_dir: Path):
         result = forward_design(data["requirement"], data["grain"], data["propellant"],
                                 nozzle=data.get("nozzle"))
         return result, "fixed-geometry"
-    raise FileNotFoundError(f"no project.yaml or synthesis.yaml in {case_dir}")
+    script = case_dir / "study.py"
+    hint = f" (this case is script-driven: run {script})" if script.exists() else ""
+    raise FileNotFoundError(f"no project.yaml or synthesis.yaml in {case_dir}{hint}")
 
 
 def run_case(case_dir: str | Path) -> int:

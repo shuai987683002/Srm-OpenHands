@@ -18,6 +18,7 @@ full plan.
 ```bash
 pip install -e ".[dev,all]"                 # editable install with dev + extras
 PYTHONPATH=src python -m pytest tests -q    # full suite (unit + integration + verification)
+PYTHONPATH=src python scripts/build_schema.py   # regenerate data/schema after a model change
 PYTHONPATH=src python -m pytest tests/verification -m verification -q -s   # V&V cases with printed results
 srm forward --template star_6_point --thrust 8000 --burn-time 4 --max-pressure 9e6
 PYTHONPATH=src python examples/run_case.py examples/projects/06_synthesis_star
@@ -48,13 +49,16 @@ src/srm_open/
                  study.py (sweep / monte_carlo)
   verification/  design-level checks
   io/            project save/load, template library
-  report/        markdown/HTML report + PNG plots
-  api/           high-level facade + argparse CLI
+  report/        markdown/HTML/PDF report + 2-D plots + 3-D previews
+  viz/           matplotlib 3-D grain / burnback previews (optional [viz])
+  api/           high-level facade + argparse CLI; rest.py = optional FastAPI
 data/            templates.yaml, propellants.yaml, thermo.yaml
+data/schema/     generated JSON Schemas (build_schema.py) — do not hand-edit
 configs/         default.yaml
 tests/           unit/ integration/ verification/
 examples/        projects/ (cases), notebooks/, run_case.py
-scripts/         build_thermo_db.py, sensitivity.py, gen_verification_results.py
+scripts/         build_thermo_db.py, build_schema.py, sensitivity.py,
+                 gen_verification_results.py
 docs/            plan, architecture.md, theory/, user_guide/, verification/
 ```
 
@@ -128,8 +132,9 @@ docs/            plan, architecture.md, theory/, user_guide/, verification/
 
 ## Verification status
 
-All of `tests/` passes (109 tests: unit + integration + verification +
-performance). V&V cases (V1–V9) and their recorded results are in
+All of `tests/` passes (134 tests: unit + integration + verification +
+performance). The REST and 3-D preview suites `importorskip` FastAPI /
+matplotlib, so they skip rather than fail when the optional extras are absent. V&V cases (V1–V9) and their recorded results are in
 `docs/verification/verification_report.md`: thermochemistry vs Cantera (<0.1%),
 nozzle isentropic identities, tube geometry closed forms, two-channel burn-area
 crosscheck, FEM vs Lamé (<0.4%), equilibrium pressure closed form + mass

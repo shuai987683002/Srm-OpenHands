@@ -85,6 +85,14 @@ def plot_results(result: DesignResult, outdir: Path) -> list[Path]:
         fig.tight_layout(); fig.savefig(p, dpi=130); plt.close(fig)
         paths.append(p)
 
+    if result.grain is not None and result.grain.segments:
+        from ..viz import plot_burnback_3d, plot_grain_3d
+
+        p = outdir / "grain_3d.png"
+        paths.append(plot_grain_3d(result.grain, p))
+        p = outdir / "burnback_3d.png"
+        paths.append(plot_burnback_3d(result.grain, result.burnback, p))
+
     return paths
 
 

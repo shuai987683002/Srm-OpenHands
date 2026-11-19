@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Convergent-divergent nozzle definition and loss model.",
+  "properties": {
+    "ambient_pressure": {
+      "default": 101325.0,
+      "minimum": 0,
+      "title": "Ambient Pressure",
+      "type": "number"
+    },
+    "c_star_efficiency": {
+      "default": 0.95,
+      "exclusiveMinimum": 0,
+      "maximum": 1.0,
+      "title": "C Star Efficiency",
+      "type": "number"
+    },
+    "cf_efficiency": {
+      "default": 0.98,
+      "exclusiveMinimum": 0,
+      "maximum": 1.0,
+      "title": "Cf Efficiency",
+      "type": "number"
+    },
+    "divergence_half_angle": {
+      "default": 0.2618,
+      "description": "cone half angle [rad], default 15 deg",
+      "exclusiveMinimum": 0,
+      "title": "Divergence Half Angle",
+      "type": "number"
+    },
+    "expansion_ratio": {
+      "default": 8.0,
+      "description": "eps = A_e/A_t [-]",
+      "exclusiveMinimum": 1.0,
+      "title": "Expansion Ratio",
+      "type": "number"
+    },
+    "source": {
+      "default": "user",
+      "title": "Source",
+      "type": "string"
+    },
+    "throat_diameter": {
+      "description": "d_t [m]",
+      "exclusiveMinimum": 0,
+      "title": "Throat Diameter",
+      "type": "number"
+    },
+    "throat_erosion_rate": {
+      "default": 0.0,
+      "description": "[m/s]",
+      "minimum": 0,
+      "title": "Throat Erosion Rate",
+      "type": "number"
+    }
+  },
+  "required": [
+    "throat_diameter"
+  ],
+  "title": "NozzleModel",
+  "type": "object"
+}

@@ -34,11 +34,13 @@ cad = ["cadquery>=2.4"]
 mesh = ["scikit-image>=0.22"]
 report = ["matplotlib>=3.7"]
 thermo_external = ["rocketcea>=1.0", "cantera>=3.0"]
+api = ["fastapi>=0.110", "uvicorn>=0.29", "httpx>=0.27"]
 optimize = ["pymoo>=0.6"]
-dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.4"]
+dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.4", "jsonschema>=4.20"]
 all = [
   "matplotlib>=3.7", "cadquery>=2.4", "scikit-image>=0.22",
-  "pymoo>=0.6", "pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.4",
+  "pymoo>=0.6", "fastapi>=0.110", "uvicorn>=0.29", "httpx>=0.27",
+  "pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.4", "jsonschema>=4.20",
 ]
 
 [project.scripts]

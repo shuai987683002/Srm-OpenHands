@@ -7,6 +7,8 @@ inconsistencies -- we never silently invent a target.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -39,8 +41,8 @@ class RequirementSet(BaseModel):
     ambient_pressure: float = Field(default=101325.0, ge=0, description="p_a [Pa]")
 
     # --- thrust shape preference ------------------------------------------
-    thrust_profile: str | None = Field(default=None,
-        description="neutral | progressive | regressive (design preference)")
+    thrust_profile: Literal["neutral", "progressive", "regressive"] | None = Field(
+        default=None, description="thrust shape preference")
 
     # --- integrity constraints --------------------------------------------
     min_safety_factor: float | None = Field(default=None, gt=1, description="required SF [-]")

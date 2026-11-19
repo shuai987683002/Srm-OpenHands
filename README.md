@@ -89,7 +89,8 @@ print(r.performance.total_impulse, r.ballistics.peak_pressure, r.grain.segments[
 | 逆向设计 | 几何逆向（轮廓/点云拟合）、燃面逆向、弹道逆向 + 优化器 + 可辨识性（条件数/VIF） |
 | 批量研究 | 参数扫描、蒙特卡洛不确定性（固定种子可复现） |
 | 校核链路 | 弹道/性能/装药/结构/数值一致性检查 |
-| 报告/API | Markdown/HTML 报告 + 曲线、脚本 API、CLI |
+| 报告/API | Markdown/HTML/PDF 报告 + 曲线、脚本 API、CLI、可选 REST（FastAPI） |
+| 3D 预览 | 药柱与燃面回归的三维示意图（matplotlib，教学用） |
 
 ## 目录结构
 
@@ -103,6 +104,7 @@ Srm-OpenHands/
 ├── tests/               # unit / integration / verification
 ├── examples/            # 示例工程 + 教学 notebook
 ├── scripts/             # 数据库构建、敏感性扫描
+├── data/schema/         # 数据集 JSON Schema（由脚本生成，防漂移）
 ├── docs/                # 方案、理论、用户指南、校核报告
 └── data_registry/       # 数据来源登记 + SBOM
 ```

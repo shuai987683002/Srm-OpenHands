@@ -21,11 +21,53 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,viz]"
       - name: Lint
-        run: ruff check src tests
+        run: ruff check src tests scripts
+      - name: Dataset schemas are up to date
+        # Regenerating must be a no-op; a diff means a model changed without
+        # re-running scripts/build_schema.py and the committed schema is now a lie.
+        run: |
+          PYTHONPATH=src python scripts/build_schema.py
+          git diff --exit-code data/schema/
       - name: Unit + integration tests
         run: PYTHONPATH=src pytest tests/unit tests/integration -q
       - name: Verification (V&V) cases
         run: PYTHONPATH=src pytest tests/verification -m verification -q
+      - name: Performance budgets (NFR-3)
+        # Only on the newest interpreter: the budget is a wall-clock assertion and
+        # older runners are slower, so this would be flaky noise there.
+        if: matrix.python-version == '3.13'
+        run: PYTHONPATH=src pytest tests/performance -m performance -q
+
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install with the REST extra
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,api]"
+      - name: REST API tests (real engine over HTTP)
+        run: PYTHONPATH=src pytest tests/integration/test_rest_api.py -q -o addopts=""
+
+  notebook:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install with notebook tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,viz]" nbformat nbclient ipykernel
+      - name: Execute the teaching notebook
+        # The notebook is a teaching deliverable; a broken one is a broken lesson.
+        run: |
+          jupyter nbconvert --to notebook --execute --stdout \
+            examples/notebooks/01_forward_and_inverse_design.ipynb > /dev/null
 
   package:
     runs-on: ubuntu-latest
