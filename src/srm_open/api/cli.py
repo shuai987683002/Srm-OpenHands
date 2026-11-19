@@ -79,7 +79,8 @@ def _emit(result: DesignResult, args) -> int:
            ("  FAILED: " + ", ".join(failed)) if failed else ""))
     if args.report:
         paths = write_report(result, args.report)
-        print("report            : %s" % paths["markdown"])
+        formats = ", ".join(sorted(k for k in paths if k in ("markdown", "html", "pdf")))
+        print("report            : %s (%s)" % (paths["markdown"], formats))
     if args.json:
         save_result_json(result, args.json)
         print("json              : %s" % args.json)
@@ -165,7 +166,7 @@ def cmd_export_cad(args) -> int:
     return 0
 
 
-def _emit(payload: dict, json_path: str | None) -> None:
+def _emit_json(payload: dict, json_path: str | None) -> None:
     text = json.dumps(payload, indent=2, default=str)
     if json_path:
         Path(json_path).parent.mkdir(parents=True, exist_ok=True)
@@ -191,7 +192,7 @@ def cmd_sensitivity(args) -> int:
     info = identifiability(space, x)
     info.pop("matrix", None)
     info.pop("e_grid", None)
-    _emit(info, args.json)
+    _emit_json(info, args.json)
     return 0
 
 
@@ -205,7 +206,7 @@ def cmd_sweep(args) -> int:
     grain, prop, req = _study_common(args)
     values = [float(v) for v in args.values.split(",") if v.strip()]
     study = sweep(req, grain, prop, args.parameter, values, target=args.target)
-    _emit(study.to_dict(), args.json)
+    _emit_json(study.to_dict(), args.json)
     return 0
 
 
@@ -226,7 +227,7 @@ def cmd_monte_carlo(args) -> int:
         return 2
     study = monte_carlo(req, grain, prop, variations,
                         n_samples=args.samples, seed=args.seed)
-    _emit(study.to_dict(), args.json)
+    _emit_json(study.to_dict(), args.json)
     return 0
 
 
@@ -247,7 +248,7 @@ def cmd_fit_outline(args) -> int:
     res = fit_outline(pts, GrainFamily(args.family), args.outer_diameter, args.length,
                       method=args.optimizer, max_iter=args.max_iter)
     res.pop("geometry", None)
-    _emit(res, args.json)
+    _emit_json(res, args.json)
     return 0
 
 

@@ -16,8 +16,6 @@ import argparse
 import csv
 from pathlib import Path
 
-import numpy as np
-
 from srm_open.api.facade import design_forward
 
 

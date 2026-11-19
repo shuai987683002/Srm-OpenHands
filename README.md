@@ -110,8 +110,10 @@ Srm-OpenHands/
 ## 校核与验证
 
 ```bash
-PYTHONPATH=src python -m pytest tests -q                       # 全部测试
-PYTHONPATH=src python -m pytest tests/verification -m verification -q -s   # 打印校核数字
+PYTHONPATH=src python -m pytest tests -q                                  # 全部测试
+PYTHONPATH=src python -m pytest tests/verification -m verification -q -s  # 打印校核数字
+PYTHONPATH=src python -m pytest tests/performance -m performance -q -s    # 性能预算（NFR-3）
+PYTHONPATH=src python -m pytest --cov=srm_open                            # 覆盖率（NFR-4）
 ```
 
 实测结论（详见 [docs/verification/verification_report.md](docs/verification/verification_report.md)）：
@@ -124,6 +126,7 @@ PYTHONPATH=src python -m pytest tests/verification -m verification -q -s   # 打
 - 用户指南：[docs/user_guide/user_guide.md](docs/user_guide/user_guide.md)
 - 理论模型：[docs/theory/](docs/theory/)（内弹道 / 燃面 / 假设）
 - 校核报告：[docs/verification/verification_report.md](docs/verification/verification_report.md)
+- 需求合规矩阵（FR/NFR 逐条证据）：[docs/requirements_compliance.md](docs/requirements_compliance.md)
 - 贡献规范：[CONTRIBUTING.md](CONTRIBUTING.md)
 
 > 免责声明：本仓库及文档由 AI 辅助整理（OpenHands），仅用于学习与交流。

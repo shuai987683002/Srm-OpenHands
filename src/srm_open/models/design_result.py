@@ -29,6 +29,7 @@ class Provenance(BaseModel):
     random_seed: int | None = None
     dependency_versions: dict[str, str] = Field(default_factory=dict)
     data_sources: list[str] = Field(default_factory=list)
+    input_hash: str = ""
 
 
 class VerificationReport(BaseModel):

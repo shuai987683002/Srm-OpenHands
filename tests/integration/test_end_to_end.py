@@ -132,6 +132,81 @@ def test_report_and_plots_written(tmp_path):
     assert paths["html"].exists()
 
 
+def test_report_pdf_is_a_valid_pdf(tmp_path):
+    r = design_from_template("star_6_point", "ap_htpb_80",
+                             {"thrust": 5000, "burn_time": 3.0})
+    paths = write_report(r, tmp_path / "out")
+    pdf = paths.get("pdf")
+    if pdf is None:  # matplotlib is an optional extra
+        pytest.skip("matplotlib not installed")
+    data = pdf.read_bytes()
+    assert data.startswith(b"%PDF-")
+    assert data.rstrip().endswith(b"%%EOF")
+    # the report body must actually be in there, not just an empty shell
+    assert len(data) > 20_000
+
+
+def test_report_pdf_matches_markdown_content(tmp_path):
+    r = design_from_template("tube_simple", "ap_htpb_80",
+                             {"thrust": 4000, "burn_time": 3.0})
+    paths = write_report(r, tmp_path / "out")
+    if "pdf" not in paths:
+        pytest.skip("matplotlib not installed")
+    from srm_open.report import _md_blocks
+
+    md = paths["markdown"].read_text()
+    headings = [p for k, p in _md_blocks(md, tmp_path / "out") if k == "h2"]
+    assert len(headings) >= 8
+    assert any("Internal ballistics" in h for h in headings)
+
+
+def test_report_pdf_can_be_disabled(tmp_path):
+    r = design_from_template("tube_simple", "ap_htpb_80",
+                             {"thrust": 4000, "burn_time": 3.0})
+    paths = write_report(r, tmp_path / "out", include_pdf=False)
+    assert "pdf" not in paths
+    assert not (tmp_path / "out" / "report.pdf").exists()
+
+
+def test_provenance_records_dependencies_and_input_hash():
+    r = design_from_template("tube_simple", "ap_htpb_80",
+                             {"thrust": 4000, "burn_time": 3.0})
+    prov = r.provenance
+    assert prov.software_version
+    assert prov.dependency_versions.get("numpy") not in (None, "absent")
+    assert len(prov.input_hash) == 64
+
+    same = design_from_template("tube_simple", "ap_htpb_80",
+                                {"thrust": 4000, "burn_time": 3.0})
+    assert same.provenance.input_hash == prov.input_hash
+
+    other = design_from_template("tube_simple", "ap_htpb_80",
+                                 {"thrust": 4500, "burn_time": 3.0})
+    assert other.provenance.input_hash != prov.input_hash
+
+
+def test_report_contains_reproducibility_block(tmp_path):
+    r = design_from_template("tube_simple", "ap_htpb_80",
+                             {"thrust": 4000, "burn_time": 3.0})
+    text = write_report(r, tmp_path / "out", include_pdf=False)["markdown"].read_text()
+    assert "dependency versions:" in text
+    assert "input hash (sha256):" in text
+
+
+def test_cli_forward_writes_report_and_json(tmp_path):
+    """Regression: a duplicate ``_emit`` definition shadowed the design printer,
+    so ``srm forward --report`` crashed with a TypeError on the Namespace."""
+    from srm_open.api.cli import main
+    rep = tmp_path / "rep"
+    js = tmp_path / "r.json"
+    assert main(["forward", "--template", "star_6_point",
+                 "--propellant", "ap_htpb_80", "--thrust", "8000",
+                 "--burn-time", "4", "--report", str(rep),
+                 "--json", str(js)]) == 0
+    assert (rep / "report.md").exists()
+    assert js.exists()
+
+
 # --------------------------------------------------------------------------
 # new CLI commands: sensitivity / sweep / monte-carlo / fit-outline / pointcloud
 # --------------------------------------------------------------------------
@@ -189,6 +264,28 @@ def test_cli_fit_outline_roundtrip(tmp_path):
     data = json.loads(out.read_text())
     assert data["success"] is True
     assert data["params"]["inner_diameter"] == pytest.approx(0.06, rel=2e-2)
+
+
+def test_stl_export_is_watertight_ascii(tmp_path):
+    from srm_open.geometry.sketch import grain_to_stl
+
+    grain = TemplateLibrary.load_default().geometry("star_6_point")
+    out = grain_to_stl(grain, tmp_path / "g.stl", segments_per_circle=64)
+    text = out.read_text()
+    assert text.startswith("solid")
+    assert text.count("facet normal") > 500
+    assert text.count("facet normal") == text.count("endfacet")
+
+
+def test_step_export_writes_iso10303(tmp_path):
+    from srm_open.geometry.sketch import grain_to_step
+
+    pytest.importorskip("cadquery")
+    grain = TemplateLibrary.load_default().geometry("tube_simple")
+    out = grain_to_step(grain, tmp_path / "g.step")
+    text = out.read_text()
+    assert text.startswith("ISO-10303-21;")
+    assert "MANIFOLD_SOLID_BREP" in text
 
 
 def test_cli_pointcloud_export(tmp_path):

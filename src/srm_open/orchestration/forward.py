@@ -31,6 +31,7 @@ from ..models.nozzle import NozzleModel
 from ..models.propellant import PropellantModel
 from ..models.requirements import RequirementSet
 from ..performance.analysis import analyze_performance
+from ..provenance import dependency_versions, input_hash
 from ..thermo.backend import evaluate as evaluate_thermo
 from ..verification.checks import run_checks
 from .requirements import check_and_complete
@@ -143,8 +144,10 @@ def forward_design(req: RequirementSet, grain: GrainGeometry,
                 "thermo": thermo.mode,
                 "integrity": integrity.method if integrity else "none",
             },
+            dependency_versions=dependency_versions(),
             data_sources=["propellant: " + (propellant.source or "user"),
                           "thermo: " + thermo.mode],
+            input_hash=input_hash(req, grain, propellant, nozzle),
         ),
     )
     result.verification.checks.append(

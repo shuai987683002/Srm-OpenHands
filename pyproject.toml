@@ -59,6 +59,7 @@ testpaths = ["tests"]
 addopts = "-q"
 markers = [
   "verification: verification / validation cases against analytical or reference data",
+  "performance: wall-clock budget checks for the NFR-3 performance targets",
 ]
 
 [tool.ruff]

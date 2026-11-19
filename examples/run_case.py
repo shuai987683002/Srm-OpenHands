@@ -25,10 +25,10 @@ from pathlib import Path
 
 import yaml
 
+from srm_open.api.facade import design_forward
 from srm_open.io.project import load_project, save_result_json
 from srm_open.models.requirements import RequirementSet
 from srm_open.orchestration.forward import forward_design
-from srm_open.api.facade import design_forward
 from srm_open.report import write_report
 
 
@@ -73,6 +73,8 @@ def run_case(case_dir: str | Path) -> int:
     passed = sum(c["passed"] for c in result.verification.checks)
     print(f"verification      : {passed}/{len(result.verification.checks)} checks passed")
     print(f"report            : {paths['markdown']}")
+    if "pdf" in paths:
+        print(f"report (pdf)      : {paths['pdf']}")
     return 0
 
 

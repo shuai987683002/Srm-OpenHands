@@ -128,7 +128,8 @@ docs/            plan, architecture.md, theory/, user_guide/, verification/
 
 ## Verification status
 
-All of `tests/` passes (88 tests). V&V cases (V1–V9) and their recorded results are in
+All of `tests/` passes (109 tests: unit + integration + verification +
+performance). V&V cases (V1–V9) and their recorded results are in
 `docs/verification/verification_report.md`: thermochemistry vs Cantera (<0.1%),
 nozzle isentropic identities, tube geometry closed forms, two-channel burn-area
 crosscheck, FEM vs Lamé (<0.4%), equilibrium pressure closed form + mass
@@ -141,6 +142,23 @@ parametric family) an inverse design space that builds a valid port.
 Note: `cylindrical` is an end-burning solid grain — its design space has only
 `length` and forces `BurnMode.END`. Asking it for a port outline (`fit_outline`)
 raises rather than silently returning an empty port.
+
+## Reproducibility and reporting conventions
+
+- `write_report()` renders Markdown once and derives HTML and PDF from the same
+  block list, so the three formats cannot disagree. PDF needs matplotlib and is
+  opt-out via `include_pdf=False`; without matplotlib it is silently skipped.
+- `Provenance.dependency_versions` and `Provenance.input_hash` are filled by
+  `orchestration/forward.py` via `srm_open.provenance`. The hash covers
+  requirement + grain + propellant + nozzle as canonical JSON. Two designs with
+  the same hash are the same design; do not add fields that vary per run (paths,
+  timestamps) to the hashed payload.
+- Never define two functions with the same name in `api/cli.py` — `_emit`
+  (design printer) and `_emit_json` (payload dumper) are distinct; a duplicate
+  `_emit` once shadowed the design printer and broke `srm forward --report`.
+- `docs/requirements_compliance.md` maps every FR/NFR to a concrete test. When
+  adding a feature, add its evidence row there; an unverified claim is recorded
+  as partial, not as done (see NFR-7).
 
 ## Boundaries
 

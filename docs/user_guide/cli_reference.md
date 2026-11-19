@@ -11,7 +11,7 @@
 | `--thrust` | 目标推力 [N] |
 | `--burn-time` | 目标工作时间 [s] |
 | `--max-pressure` | 压强上限 [Pa] |
-| `--report DIR` | 写出 Markdown/HTML 报告与曲线到 DIR |
+| `--report DIR` | 写出 Markdown/HTML/PDF 报告与曲线到 DIR（PDF 需要 matplotlib） |
 | `--json PATH` | 写出 `DesignResult` JSON |
 
 ## `srm templates`

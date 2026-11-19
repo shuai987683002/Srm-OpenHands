@@ -86,11 +86,27 @@ PYTHONPATH=src python examples/run_case.py examples/projects/06_synthesis_star
 | 07_synthesis_tube | 指标驱动 | 由指标合成管形药柱（渐进） |
 | 08_inverse_identifiability | 逆向研究 | 轮廓反演 + 可辨识性 + 扫描 + 蒙特卡洛 |
 
-每个用例运行后会在 `output/` 生成 `report.md`、`report.html`、曲线 PNG 与 `result.json`。
+每个用例运行后会在 `output/` 生成 `report.md`、`report.html`、`report.pdf`、曲线 PNG 与 `result.json`。
 
 ## 5. 报告内容
 
 报告包含：指标表、性能表、校核项及残差、假设与来源（provenance）、曲线图。
+
+三种格式由**同一份 Markdown 渲染**，内容不会互相矛盾。PDF 由 matplotlib 生成，
+是唯一的可选格式：未安装 matplotlib 时 `write_report()` 只返回 md/html，不会报错。
+
+`provenance` 段落记录复现所需的全部信息（NFR-2）：
+
+| 字段 | 含义 |
+|---|---|
+| software version | 本软件版本 |
+| model choices | 内弹道/燃面/热化学/强度所用模型 |
+| dependency versions | numpy / scipy / shapely / pydantic / PyYAML 的运行时版本 |
+| input hash (sha256) | 对指标集+药型+推进剂+喷管做规范化 JSON 后的哈希，可用于比对两次设计是否同输入 |
+| random seed | 逆向优化与 Monte-Carlo 使用的种子 |
+
+同样的输入得到同样的 `input hash`，因此"两次报告是否为同一设计"可以直接比对哈希，
+不必逐行 diff。
 `result.json` 为完整 `DesignResult` 序列化，可用于二次分析。
 
 ## 6. 配置

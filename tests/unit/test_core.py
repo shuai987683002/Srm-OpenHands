@@ -395,3 +395,125 @@ def test_outline_fit_rejects_solid_end_burner():
     with pytest.raises(ValueError, match="end-burning"):
         fit_outline([(0.03, 0), (0, -0.03), (-0.03, 0), (0, 0.03)],
                     GrainFamily.CYLINDRICAL, 0.16, 0.5)
+
+
+# --------------------------------------------------------------------------
+# FR-1: requirement consistency checking and completion
+# --------------------------------------------------------------------------
+def test_requirements_fill_total_impulse_from_thrust_and_time():
+    from srm_open.models.requirements import RequirementSet
+    from srm_open.orchestration.requirements import check_and_complete
+
+    req = RequirementSet(name="r", thrust=5000.0, burn_time=4.0)
+    rep = check_and_complete(req)
+    assert req.total_impulse == pytest.approx(20000.0)
+    assert rep.filled["total_impulse"] == pytest.approx(20000.0)
+    assert not rep.conflicts
+
+
+def test_requirements_fill_propellant_mass_from_impulse_and_isp():
+    from srm_open.constants import G0
+    from srm_open.models.requirements import RequirementSet
+    from srm_open.orchestration.requirements import check_and_complete
+
+    req = RequirementSet(name="r", total_impulse=20000.0, specific_impulse=200.0)
+    check_and_complete(req)
+    assert req.propellant_mass == pytest.approx(20000.0 / (200.0 * G0), rel=1e-9)
+
+
+def test_requirements_flag_impulse_conflict():
+    from srm_open.models.requirements import RequirementSet
+    from srm_open.orchestration.requirements import check_and_complete
+
+    # F*t_b = 12000, but total_impulse claims 30000: a real contradiction
+    req = RequirementSet(name="bad", thrust=4000.0, burn_time=3.0,
+                         total_impulse=30000.0)
+    rep = check_and_complete(req)
+    assert rep.conflicts
+    assert "inconsistent" in rep.conflicts[0]
+    assert req.total_impulse == 30000.0  # never silently overwritten
+
+
+def test_requirements_note_under_determined_input():
+    from srm_open.models.requirements import RequirementSet
+    from srm_open.orchestration.requirements import check_and_complete
+
+    rep = check_and_complete(RequirementSet(name="thin", thrust=1000.0))
+    assert rep.degrees_of_freedom == 1
+    assert any("under-determined" in n for n in rep.notes)
+
+
+def test_requirements_note_thrust_vs_average_thrust():
+    from srm_open.models.requirements import RequirementSet
+    from srm_open.orchestration.requirements import check_and_complete
+
+    rep = check_and_complete(RequirementSet(name="f", thrust=9000.0,
+                                            average_thrust=6000.0, burn_time=2.0))
+    assert any("average thrust" in n for n in rep.notes)
+
+
+# --------------------------------------------------------------------------
+# FR-4: propellant database is data-driven and user-extensible
+# --------------------------------------------------------------------------
+def test_propellant_db_lists_shipped_entries_with_source():
+    from srm_open.propellant.database import PropellantDB
+
+    db = PropellantDB.load_default()
+    ids = db.ids()
+    assert len(ids) >= 4
+    for p in db.all():
+        assert p.source, f"{p.id} must declare where its numbers come from"
+        assert p.density > 0
+
+
+def test_propellant_db_round_trip_through_yaml(tmp_path):
+    from srm_open.propellant.database import PropellantDB
+
+    db = PropellantDB.load_default()
+    out = db.save(tmp_path / "props.yaml")
+    again = PropellantDB.from_file(out)
+    assert set(again.ids()) == set(db.ids())
+    assert again.get(db.ids()[0]).density == pytest.approx(db.get(db.ids()[0]).density)
+
+
+def test_propellant_db_user_can_add_and_remove(tmp_path):
+    from srm_open.propellant.database import PropellantDB
+
+    db = PropellantDB.load_default()
+    base = db.get(db.ids()[0])
+    custom = base.model_copy(update={"id": "my_prop", "name": "User propellant"})
+    db.add(custom)
+    assert "my_prop" in db
+    assert db.get("my_prop").name == "User propellant"
+
+    db.save(tmp_path / "props.yaml")
+    assert "my_prop" in PropellantDB.from_file(tmp_path / "props.yaml")
+
+    db.remove("my_prop")
+    assert "my_prop" not in db
+
+
+def test_propellant_db_unknown_id_raises():
+    from srm_open.propellant.database import PropellantDB
+
+    with pytest.raises(KeyError):
+        PropellantDB.load_default().get("does_not_exist")
+
+
+def test_burn_rate_law_is_pluggable():
+    from srm_open.models.propellant import BurnRateLaw, BurnRateModel
+    from srm_open.propellant.burn_rate import build_burn_rate, register_burn_rate_law
+
+    def flat_builder(model: BurnRateModel):
+        return lambda p: model.a  # r independent of p
+
+    register_burn_rate_law(BurnRateLaw.SAINT_ROBERT, flat_builder)
+    try:
+        model = BurnRateModel(law=BurnRateLaw.SAINT_ROBERT, a=0.005, n=0.5)
+        assert build_burn_rate(model)(1e6) == pytest.approx(0.005)
+    finally:  # restore the shipped implementation for other tests
+        import importlib
+
+        import srm_open.propellant.burn_rate as br
+
+        importlib.reload(br)
