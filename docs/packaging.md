@@ -75,7 +75,7 @@ dist/srm inverse --family star --outer-diameter 0.16 --thrust 6000 --burn-time 4
 可执行文件是构建产物，**不纳入版本库**（见 `.gitignore`：`dist/`、
 `packaging/wheelhouse/`、`build/pyi/`、`release/*.exe`、`release/SHA256SUMS`）。
 发布通过 GitHub Releases 完成：`.github/workflows/release.yml` 在打 tag
-（如 `v0.1.0`）时构建 exe、wheel 与 sdist，上传为 release 资产。
+（如 `v0.1.1`）时构建 exe、wheel 与 sdist，上传为 release 资产。
 分发时请连同 `LICENSE` 与免责声明一并提供。
 
 > 为什么不把 exe 提交到仓库：它是 80 MB 的二进制，一旦进入 git 历史，
@@ -86,12 +86,12 @@ dist/srm inverse --family star --outer-diameter 0.16 --thrust 6000 --burn-time 4
 
 ```bash
 # 1. 确认版本号一致（工作流会校验）
-grep -n '^version' pyproject.toml          # → 0.1.0
+grep -n '^version' pyproject.toml          # → 0.1.1
 grep -n '__version__' src/srm_open/__init__.py
 
 # 2. 打 tag 并推送，触发构建与发布
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 工作流分四个 job：`version-check`（tag 与版本号必须一致）→
