@@ -279,6 +279,25 @@ raises rather than silently returning an empty port.
 - `docs/requirements_compliance.md` maps every FR/NFR to a concrete test. When
   adding a feature, add its evidence row there; an unverified claim is recorded
   as partial, not as done (see NFR-7).
+- The web UI (`src/srm_open/web/`) is plain HTML/CSS/JS with no build step, so
+  it must work straight from `StaticFiles`. Anything requiring npm, bundling or
+  a transpile step is out of scope by design — the frozen binary ships these
+  three files verbatim.
+- Number inputs use `step="any"`. A fixed `step` (e.g. `min=1 step=100`) makes
+  the browser's constraint validation reject perfectly legal defaults such as
+  `2.5` in `min=0.01 step=0.1`, and a rejected form fails *silently*: no request
+  is sent, so the server log shows nothing and the UI simply appears inert.
+- `rest._FRONTEND` is derived from `__file__`, so PyInstaller must ship the
+  assets at `srm_open/web` inside `_MEIPASS` (see `packaging/srm_open.spec`).
+  Flattening them to `web/` makes `srm serve` print "front end assets not
+  found" from the frozen binary while the source checkout still works.
+- The front end never computes design values; it only renders what `/design`
+  and `/inverse` return. Keep it that way so the UI, CLI and REST API cannot
+  drift into two different models.
+- Verifying the UI headlessly: `chromium --headless --virtual-time-budget=...`
+  with `--dump-dom` executes `app.js` and the fetch calls, which is enough to
+  assert on rendered metrics and SVG. Playwright is not installed in this
+  container and is not required.
 
 ## Boundaries
 

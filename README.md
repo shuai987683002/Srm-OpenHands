@@ -64,6 +64,16 @@ PYTHONPATH=src python examples/run_case.py examples/projects/06_synthesis_star
 > 执行 `export PATH="$HOME/.local/bin:$PATH"`，或直接用等效方式
 > `PYTHONPATH=src python -m srm_open.api.cli ...`。
 
+也可以直接在浏览器里设计（正向 / 逆向）：
+
+```bash
+pip install -e ".[api]"     # FastAPI + uvicorn
+srm serve                   # 打开 http://127.0.0.1:8000/ui/
+```
+
+界面无构建链、不联网：填指标 → 得到药型截面、推力/压强与燃面积曲线、校核清单，
+并可下载 STL。全部数值由同一后端引擎产生，与 CLI/API 结果一致。
+
 也可用 Python API：
 
 ```python
@@ -94,6 +104,7 @@ print(r.performance.total_impulse, r.ballistics.peak_pressure, r.grain.segments[
 | 校核链路 | 弹道/性能/装药/结构/数值一致性检查 |
 | 报告/API | Markdown/HTML/PDF 报告 + 曲线、脚本 API、CLI、可选 REST（FastAPI） |
 | 3D 预览 | 药柱与燃面回归的三维示意图（matplotlib，教学用） |
+| Web 前端 | 浏览器内正向/逆向设计、SVG 药型截面与曲线、STL 下载（`srm serve`） |
 
 ## 目录结构
 
@@ -101,7 +112,7 @@ print(r.performance.total_impulse, r.ballistics.peak_pressure, r.grain.segments[
 Srm-OpenHands/
 ├── src/srm_open/        # 计算内核与 API（models, thermo, geometry, burnback,
 │                        #   ballistics, performance, integrity, inverse,
-│                        #   orchestration, io, report, api）
+│                        #   orchestration, io, report, api, web）
 ├── data/                # 模板库、推进剂库、热化学库
 ├── configs/             # 分层配置
 ├── tests/               # unit / integration / verification

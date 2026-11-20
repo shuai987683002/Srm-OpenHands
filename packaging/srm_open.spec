@@ -24,6 +24,8 @@ ROOT = Path(SPECPATH).parent  # repository root
 datas = [
     (str(ROOT / "data"), "data"),
     (str(ROOT / "configs"), "configs"),
+    # mirrors the package layout so rest._FRONTEND resolves inside _MEIPASS
+    (str(ROOT / "src" / "srm_open" / "web"), "srm_open/web"),
 ]
 
 hiddenimports = [

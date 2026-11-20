@@ -14,6 +14,7 @@ Commands
   srm sweep       --parameter P --values a,b,c    (parametric sweep)
   srm monte-carlo --vary PATH:SIGMA [--vary ...]  (uncertainty propagation)
   srm export-cad  --template T --format stl|step|pointcloud --out FILE
+  srm serve       [--host H] [--port P]   (local web UI, needs the 'api' extra)
 """
 
 from __future__ import annotations
@@ -137,6 +138,25 @@ def cmd_inverse(args) -> int:
                             method=args.optimizer, max_iter=args.max_iter)
     print("recovered params  : %s" % result.grain.segments[0].params)
     return _emit(result, args)
+
+
+def cmd_serve(args) -> int:
+    try:
+        import uvicorn
+    except ImportError:
+        print("the web UI needs the optional extra: pip install -e '.[api]'",
+              file=sys.stderr)
+        return 2
+
+    from ..api.rest import frontend_available
+
+    if not frontend_available():
+        print("front end assets not found in this build", file=sys.stderr)
+        return 2
+    print(f"Srm-Open web UI on http://{args.host}:{args.port}/ui/  (Ctrl-C to stop)")
+    uvicorn.run("srm_open.api.rest:app", host=args.host, port=args.port,
+                log_level=args.log_level)
+    return 0
 
 
 def cmd_thermo(args) -> int:
@@ -338,6 +358,13 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--optimizer", default="nelder_mead")
     sp.add_argument("--max-iter", type=int, default=120)
     sp.set_defaults(func=cmd_inverse)
+
+    sp = sub.add_parser("serve", help="start the local web UI (needs the 'api' extra)")
+    sp.add_argument("--host", default="127.0.0.1")
+    sp.add_argument("--port", type=int, default=8000)
+    sp.add_argument("--log-level", default="info",
+                    choices=["critical", "error", "warning", "info", "debug"])
+    sp.set_defaults(func=cmd_serve)
 
     sp = sub.add_parser("thermo", help="evaluate propellant thermochemistry")
     sp.add_argument("--propellant", default="ap_htpb_80")

@@ -89,3 +89,132 @@ def test_unknown_template_and_bad_input_are_distinguished(client):
 
     invalid = client.post("/design", json={"thrust": -5.0, "burn_time": 1.0})
     assert invalid.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# M5 web surface: families, inverse design, sketch, STL, front-end assets
+# ---------------------------------------------------------------------------
+
+
+def test_families_expose_inverse_design_bounds(client):
+    body = client.get("/families").json()
+    by_name = {f["family"]: f for f in body["families"]}
+    # every family in the enum is reported, including the one with no parameters
+    assert "star" in by_name and "custom_polygon" in by_name
+    assert by_name["custom_polygon"]["params"] == []
+    assert by_name["custom_polygon"]["note"]
+
+    star = {p["name"]: p for p in by_name["star"]["params"]}
+    assert star["n_points"]["integer"] is True
+    assert star["n_points"]["low"] < star["n_points"]["high"]
+    assert by_name["star"]["burn_mode"] == "internal"
+
+
+def test_inverse_design_recovers_the_requested_thrust_and_burn_time(client):
+    resp = client.post(
+        "/inverse?curves=true&sketch=true",
+        json={
+            "family": "star",
+            "outer_diameter": 0.14,
+            "thrust": 4000.0,
+            "burn_time": 2.5,
+            "max_iter": 40,
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+
+    recovered = body["recovered"]
+    assert recovered["family"] == "star"
+    assert recovered["outer_diameter"] == pytest.approx(0.14)
+    assert set(recovered["params"]) >= {"inner_diameter", "point_diameter", "n_points"}
+
+    # the closed loop must land on the targets it was given
+    assert body["performance"]["average_thrust"] == pytest.approx(4000.0, rel=0.10)
+    assert body["performance"]["burn_time"] == pytest.approx(2.5, rel=0.10)
+    assert body["verification"]["failed"] == []
+
+    # curves and the cross-section come back from the same run
+    assert len(body["curves"]["time"]) == len(body["curves"]["thrust"])
+    assert body["sketch"]["segments"][0]["family"] == "star"
+
+
+def test_inverse_design_rejects_requests_it_cannot_solve(client):
+    no_target = client.post("/inverse", json={"family": "star", "outer_diameter": 0.14})
+    assert no_target.status_code == 422
+
+    bad_family = client.post(
+        "/inverse",
+        json={"family": "nope", "outer_diameter": 0.14, "thrust": 1000.0},
+    )
+    assert bad_family.status_code == 404
+
+    # a free-form port has no parametric space, so there is nothing to invert
+    no_space = client.post(
+        "/inverse",
+        json={"family": "custom_polygon", "outer_diameter": 0.14, "thrust": 1000.0},
+    )
+    assert no_space.status_code == 422
+
+
+def test_sketch_endpoint_returns_closed_outlines(client):
+    body = client.post(
+        "/sketch",
+        json={
+            "family": "tube",
+            "length": 0.3,
+            "outer_diameter": 0.14,
+            "params": {"inner_diameter": 0.05},
+        },
+    ).json()
+    seg = body["segments"][0]
+    assert seg["family"] == "tube"
+    # the outer ring must close back on its first point
+    assert seg["outer"][0] == seg["outer"][-1]
+    assert len(seg["port_rings"]) == 1
+    assert seg["port_rings"][0][0] == seg["port_rings"][0][-1]
+
+
+def test_sketch_rejects_an_unknown_family(client):
+    resp = client.post(
+        "/sketch",
+        json={"family": "nope", "length": 0.3, "outer_diameter": 0.14},
+    )
+    assert resp.status_code == 422
+
+
+def test_grain_stl_download_is_a_valid_ascii_solid(client):
+    resp = client.post(
+        "/grain/stl",
+        json={
+            "family": "finocyl",
+            "length": 0.3,
+            "outer_diameter": 0.14,
+            "params": {"inner_diameter": 0.05, "fin_width": 0.02,
+                       "fin_length": 0.04, "n_fins": 6},
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("model/stl")
+    assert "attachment" in resp.headers["content-disposition"]
+
+    text = resp.content.decode("ascii")
+    assert text.startswith("solid grain")
+    assert text.rstrip().endswith("endsolid grain")
+    assert text.count("facet normal") == text.count("endfacet")
+    assert text.count("facet normal") > 0
+
+
+def test_front_end_assets_are_served(client):
+    """The M5 UI ships inside the package, so it must load from the same app."""
+    index = client.get("/ui/")
+    assert index.status_code == 200
+    assert "Srm-Open" in index.text
+
+    for asset in ("app.js", "style.css"):
+        assert client.get(f"/ui/{asset}").status_code == 200
+
+    # the root redirects into the UI so a bare `srm serve` is usable
+    root = client.get("/", follow_redirects=False)
+    assert root.status_code in (302, 307)
+    assert root.headers["location"].endswith("/ui/")

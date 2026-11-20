@@ -58,7 +58,7 @@ Documentation = "https://github.com/shuai987683002/Srm-OpenHands/tree/main/docs"
 where = ["src"]
 
 [tool.setuptools.package-data]
-srm_open = ["data/**/*"]
+srm_open = ["data/**/*", "web/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

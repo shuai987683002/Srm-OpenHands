@@ -31,7 +31,7 @@ PYTHONPATH=src pytest -m performance -q -s    # NFR-3 性能预算
 | FR-9 | 校核链路（推力↔压强↔燃面↔几何一致性） | `verification/checks.py` | 每次设计自动执行 7–9 项检查，结果写入 `verification.checks` | ✅ |
 | FR-10 | 三维几何导出（STEP/STL/点云）+ 三维预览 | `geometry/sketch.py:grain_to_step/grain_to_stl/grain_to_pointcloud`、CLI `export-cad`、`viz/` | `test_stl_export_is_watertight_ascii`、`test_step_export_writes_iso10303`、`test_cli_pointcloud_export`；`test_viz.py` 6 项（12 个模板全部可渲染且非空白） | ✅ |
 | FR-11 | 报告导出 PDF/HTML/Markdown | `report/__init__.py:write_report` | `test_report_pdf_is_a_valid_pdf` 等 5 项；示例 `output/report.pdf` | ✅ |
-| FR-12 | 脚本 API / CLI：批量扫描、敏感性、Monte-Carlo；可选 REST | `api/cli.py`、`api/facade.py`、`api/rest.py`、`orchestration/study.py` | `srm sensitivity / sweep / monte-carlo` 三组 CLI 用例；V9（同种子逐位一致）；`test_rest_api.py` 6 项（真实引擎经 HTTP 调用，404/422 语义、provenance 哈希透传） | ✅ |
+| FR-12 | 脚本 API / CLI：批量扫描、敏感性、Monte-Carlo；可选 REST | `api/cli.py`、`api/facade.py`、`api/rest.py`、`orchestration/study.py` | `srm sensitivity / sweep / monte-carlo` 三组 CLI 用例；V9（同种子逐位一致）；`test_rest_api.py` 13 项（真实引擎经 HTTP 调用，404/422 语义、provenance 哈希透传、逆向闭环命中目标、STL/草图契约） | ✅ |
 | FR-13 | 逆向优化器（匹配 A_b(t)/F(t)/I_t，输出可行设计集） | `inverse/design.py:inverse_design`、`inverse/optimize.py` | `test_end_to_end.py` 逆向收敛用例 + 收敛残差写入报告 | ✅ |
 
 ## 2. 非功能性需求（NFR）
@@ -40,7 +40,7 @@ PYTHONPATH=src pytest -m performance -q -s    # NFR-3 性能预算
 |---|---|---|---|---|
 | NFR-1 | 跨平台，Python ≥ 3.10 | `pyproject.toml:requires-python` | 纯 Python + numpy/scipy，无平台专有调用 | ✅ |
 | NFR-2 | 数值可复现：固定种子、记录版本与依赖哈希、依赖锁定 | `provenance.py`、`orchestration/forward.py`、`uv.lock` | `test_provenance_records_dependencies_and_input_hash`：同输入哈希相同、异输入不同；`uv sync --frozen` 实测可复现安装（130 包，含哈希） | ✅ |
-| NFR-3 | 单次零维内弹道 < 1 s；Level-Set 单方案 < 30 s | 数值实现 | `pytest -m performance -s`：实测 357 ms / 0.07 s（60×60×20） | ✅ |
+| NFR-3 | 单次零维内弹道 < 1 s；Level-Set 单方案 < 30 s | 数值实现 | `pytest -m performance -s`：实测 90 ms / 0.06 s（60×60×20） | ✅ |
 | NFR-4 | 核心模块测试覆盖率 ≥ 80% | `tests/` | `pytest --cov=srm_open`：**86%**（3462 语句，476 未覆盖） | ✅ |
 | NFR-5 | 插件式注册（推进剂/燃速/喷管/燃面算法）+ 数据集 schema | `geometry/families.py:register_family`、`propellant/burn_rate.py:register_burn_rate_law`、`data/schema/`、`scripts/build_schema.py` | `test_burn_rate_law_is_pluggable`（运行时替换燃速律）；`test_every_grain_family_has_a_builder_and_a_design_space`；`test_schema.py` 11 项（schema 与模型一致、5 个示例工程全部通过校验、坏数据被拒） | ✅ |
 | NFR-6 | 可解释：结果可回溯到公式与假设 | `docs/theory/*.md`、`Provenance`、`GrainBodyResult.assumptions` | 报告 §11 列出模型选择、假设与数据来源 | ✅ |
@@ -51,11 +51,11 @@ PYTHONPATH=src pytest -m performance -q -s    # NFR-3 性能预算
 
 | 计划条目 | 先前状态 | 现在 |
 |---|---|---|
-| §6 后端 FastAPI（REST） | 仅有 CLI/脚本 API | `api/rest.py`：`/health`、`/templates`、`/propellants`、`/propellants/{id}/thermo`、`/design`；`api` 为可选 extra，未装 FastAPI 时核心包不受影响 |
+| §6 后端 FastAPI（REST） | 仅有 CLI/脚本 API | `api/rest.py`：`/health`、`/templates`、`/propellants`、`/propellants/{id}/thermo`、`/families`、`/design`（可选 `summary/curves/sketch`）、`/inverse`、`/sketch`、`/grain/stl`；`api` 为可选 extra，未装 FastAPI 时核心包不受影响 |
 | §7 `data/schema/` 数据集 JSON Schema | 目录不存在 | 5 个 schema 由 `scripts/build_schema.py` 从 pydantic 模型生成；测试保证"模型改了但没重新生成"会失败 |
 | §M5 三维可视化 | 只有 2D 曲线 | `viz/`：药柱三维图与燃面回归示意图，已接入报告（`grain_3d.png`、`burnback_3d.png`） |
 | §7 `uv.lock` 依赖锁定 | 缺失 | 已生成并提交；`uv sync --frozen` 实测可用 |
-| §M5 Web 前端 | 计划中列出 | **未实现**，文档已改为如实标注（见 §6 表格"界面"一行） |
+| §M5 Web 前端 | 计划中列出 | 已实现：`src/srm_open/web/`（原生 HTML/CSS/JS，无构建链）+ `srm serve` 启动；正向/逆向表单、SVG 药型截面、推力-压强与燃面积曲线、校核清单、STL 下载 |
 
 三维预览选 matplotlib 而非计划中的 PyVista：教学用图的诉求是"看得懂药型与退移方向"，
 不值得为此让核心包依赖 VTK。真正的几何交付走 STEP/STL 导出。

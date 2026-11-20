@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Srm-Open — 固体火箭发动机药型设计</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>Srm-Open</h1>
+  <span class="sub">固体火箭发动机药型设计 · 教学与非商业研发</span>
+  <nav class="links">
+    <a href="/docs" target="_blank" rel="noopener">API</a>
+    <a href="https://github.com/shuai987683002/Srm-OpenHands" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+</header>
+
+<main>
+  <!-- ---------------- inputs ---------------- -->
+  <section class="panel">
+    <div class="tabs" role="tablist">
+      <button role="tab" id="tab-forward" aria-selected="true" aria-controls="pane-forward">正向设计</button>
+      <button role="tab" id="tab-inverse" aria-selected="false" aria-controls="pane-inverse">逆向设计</button>
+    </div>
+
+    <form id="pane-forward" role="tabpanel" aria-labelledby="tab-forward">
+      <label><span>平均推力 F (N)</span>
+        <input type="number" name="thrust" value="4000" min="1" step="any" required></label>
+      <label><span>工作时间 t_b (s)</span>
+        <input type="number" name="burn_time" value="2.5" min="0.01" step="any" required></label>
+      <label><span>推进剂</span>
+        <select name="propellant" id="propellant-forward"></select></label>
+      <label><span>药型族</span>
+        <select name="family" id="family-forward"></select></label>
+      <div class="row">
+        <label><span>外径 D (m)</span>
+          <input type="number" name="outer_diameter" value="0.14" min="0.01" step="any"></label>
+        <label><span>最大压强 (MPa)</span>
+          <input type="number" name="max_pressure_mpa" value="9" min="0.1" step="any"></label>
+      </div>
+      <button type="submit" class="primary" id="run-forward">生成药型方案</button>
+      <p class="hint">从总体指标出发，自动综合药型、喉部与装药量，并跑完整的内弹道与校核链路。</p>
+    </form>
+
+    <form id="pane-inverse" role="tabpanel" aria-labelledby="tab-inverse" hidden>
+      <label><span>药型族</span>
+        <select name="family" id="family-inverse"></select></label>
+      <label><span>外径包络 D (m)</span>
+        <input type="number" name="outer_diameter" value="0.14" min="0.01" step="any" required></label>
+      <label><span>目标推力 F (N)</span>
+        <input type="number" name="thrust" value="4000" min="1" step="any" required></label>
+      <label><span>目标工作时间 t_b (s)</span>
+        <input type="number" name="burn_time" value="2.5" min="0.01" step="any" required></label>
+      <label><span>推进剂</span>
+        <select name="propellant" id="propellant-inverse"></select></label>
+      <div class="row">
+        <label><span>长度提示 (m)</span>
+          <input type="number" name="length" value="0.45" min="0.05" step="any"></label>
+        <label><span>最大迭代</span>
+          <input type="number" name="max_iter" value="120" min="1" max="2000" step="any"></label>
+      </div>
+      <button type="submit" class="primary" id="run-inverse">反推设计参数</button>
+      <p class="hint">从弹道要求反推药型参数与喉径；优化器在同一正向模型上闭环，结果自洽。</p>
+    </form>
+
+    <div id="error" class="error" hidden></div>
+  </section>
+
+  <!-- ---------------- results ---------------- -->
+  <section class="panel" id="results">
+    <h2>设计结果</h2>
+    <div id="results-body" class="empty">尚未运行。左侧填入指标后开始设计。</div>
+  </section>
+</main>
+
+<footer>
+  <strong>免责声明：</strong>本工具面向教学、科研与非商业工业研发，输出为初步设计级估算，
+  不构成可用于发动机定型、试验或生产的工程结论。禁止用于武器化或违反适用法律的用途。
+  详见仓库 <code>LICENSE</code> 与 <code>docs/</code> 中的适用范围说明。
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
