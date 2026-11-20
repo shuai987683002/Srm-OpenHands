@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "srm-open-project"
+    },
+    "grain": {
+      "$ref": "grain.schema.json"
+    },
+    "meta": {
+      "type": "object"
+    },
+    "nozzle": {
+      "$ref": "nozzle.schema.json"
+    },
+    "propellant": {
+      "$ref": "propellant.schema.json"
+    },
+    "requirement": {
+      "$ref": "requirement.schema.json"
+    },
+    "version": {
+      "const": 1
+    }
+  },
+  "required": [
+    "format",
+    "version",
+    "requirement",
+    "propellant",
+    "grain"
+  ],
+  "title": "Srm-Open project file",
+  "type": "object"
+}

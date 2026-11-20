@@ -1,0 +1,163 @@
+# Srm-Open built-in grain templates.
+#
+# Each template is a complete GrainGeometry (see srm_open.models.grain).
+# `outer_diameter` and `length` are placeholders: scale them to your motor.
+# Families: cylindrical, tube, tube_inhibited, star, wagon_wheel, slotted,
+# finocyl, spherical, conical, multi_perforated, wedge, airfoil, embedded_wire,
+# custom_polygon
+
+templates:
+  tube_simple:
+    name: "Simple central-bore tube (internal burning)"
+    family: tube
+    segments:
+      - family: tube
+        length: 0.5
+        outer_diameter: 0.16
+        burn_mode: internal
+        params: {inner_diameter: 0.06}
+
+  tube_both_ends:
+    name: "Uninhibited tube (inner + outer burning)"
+    family: tube
+    segments:
+      - family: tube
+        length: 0.5
+        outer_diameter: 0.16
+        burn_mode: both
+        params: {inner_diameter: 0.08}
+
+  star_6_point:
+    name: "6-point star (progressive-regressive)"
+    family: star
+    segments:
+      - family: star
+        length: 0.5
+        outer_diameter: 0.16
+        burn_mode: internal
+        params: {n_points: 6, inner_diameter: 0.04, point_diameter: 0.12, point_half_angle: 10}
+
+  star_8_point_filleted:
+    name: "8-point filleted star"
+    family: star
+    segments:
+      - family: star
+        length: 0.6
+        outer_diameter: 0.20
+        burn_mode: internal
+        params: {n_points: 8, inner_diameter: 0.05, point_diameter: 0.15, point_half_angle: 10, fillet: 0.003}
+
+  wagon_wheel_6:
+    name: "6-spoke wagon wheel"
+    family: wagon_wheel
+    segments:
+      - family: wagon_wheel
+        length: 0.5
+        outer_diameter: 0.18
+        burn_mode: internal
+        params: {n_spokes: 6, inner_diameter: 0.04, spoke_width: 0.02, spoke_length: 0.05}
+
+  slotted_6:
+    name: "6-slot (internal-external)"
+    family: slotted
+    segments:
+      - family: slotted
+        length: 0.5
+        outer_diameter: 0.18
+        burn_mode: internal
+        params: {inner_diameter: 0.05, n_slots: 6, slot_width: 0.012, slot_depth: 0.04}
+
+  finocyl_6:
+    name: "6-fin finocyl"
+    family: finocyl
+    segments:
+      - family: finocyl
+        length: 0.6
+        outer_diameter: 0.18
+        burn_mode: internal
+        params: {inner_diameter: 0.05, n_fins: 6, fin_width: 0.012, fin_length: 0.05}
+
+  multi_perf_7:
+    name: "7-perforation (classic multi-perf)"
+    family: multi_perforated
+    segments:
+      - family: multi_perforated
+        length: 0.5
+        outer_diameter: 0.18
+        burn_mode: internal
+        params: {n_perforations: 7, perf_diameter: 0.012}
+
+  spherical_cavity:
+    name: "Spherical cavity (end burning)"
+    family: spherical
+    segments:
+      - family: spherical
+        length: 0.2
+        outer_diameter: 0.16
+        burn_mode: internal
+        params: {cavity_diameter: 0.10}
+
+  conical_cavity:
+    name: "Conical cavity"
+    family: conical
+    segments:
+      - family: conical
+        length: 0.3
+        outer_diameter: 0.16
+        burn_mode: internal
+        params: {base_diameter: 0.12, apex_diameter: 0.0}
+
+  end_burner:
+    name: "Solid cylinder (end burning)"
+    family: cylindrical
+    segments:
+      - family: cylindrical
+        length: 0.3
+        outer_diameter: 0.15
+        burn_mode: end
+        params: {}
+
+  two_segment_booster:
+    name: "Two-segment booster (tube + star)"
+    family: tube
+    segments:
+      - family: tube
+        length: 0.3
+        outer_diameter: 0.16
+        burn_mode: internal
+        params: {inner_diameter: 0.05}
+      - family: star
+        length: 0.3
+        outer_diameter: 0.16
+        burn_mode: internal
+        params: {n_points: 6, inner_diameter: 0.04, point_diameter: 0.12, point_half_angle: 10}
+
+  wedge_6:
+    name: "6-sector wedge port (near-neutral plateau)"
+    family: wedge
+    segments:
+      - family: wedge
+        length: 0.5
+        outer_diameter: 0.18
+        burn_mode: internal
+        params: {n_wedges: 6, inner_diameter: 0.04, tip_diameter: 0.14, wedge_angle: 22}
+
+  airfoil_6:
+    name: "6-blade airfoil port (low stress concentration)"
+    family: airfoil
+    segments:
+      - family: airfoil
+        length: 0.5
+        outer_diameter: 0.18
+        burn_mode: internal
+        params: {n_blades: 6, inner_diameter: 0.04, blade_chord: 0.06, thickness_ratio: 0.15}
+
+  embedded_wire_8:
+    name: "Tube grain with 8 radial steel wires (progressive)"
+    family: embedded_wire
+    segments:
+      - family: embedded_wire
+        length: 0.5
+        outer_diameter: 0.18
+        burn_mode: internal
+        params: {inner_diameter: 0.06, n_wires: 8, wire_diameter: 0.001}

@@ -1,0 +1,248 @@
+{
+  "$defs": {
+    "BurnRateLaw": {
+      "description": "Supported burning-rate correlations.",
+      "enum": [
+        "saint_robert",
+        "saint_robert_temp",
+        "constant",
+        "table"
+      ],
+      "title": "BurnRateLaw",
+      "type": "string"
+    },
+    "BurnRateModel": {
+      "description": "A single burning-rate law with its (user supplied) coefficients.",
+      "properties": {
+        "a": {
+          "description": "coefficient [m/s/Pa^n] or [m/s]",
+          "exclusiveMinimum": 0,
+          "title": "A",
+          "type": "number"
+        },
+        "law": {
+          "$ref": "#/$defs/BurnRateLaw",
+          "default": "saint_robert"
+        },
+        "n": {
+          "default": 0.0,
+          "description": "pressure exponent [-]",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "N",
+          "type": "number"
+        },
+        "pressure_table": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pressure Table"
+        },
+        "rate_table": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rate Table"
+        },
+        "reference_temperature": {
+          "default": 293.15,
+          "description": "T_ref [K]",
+          "exclusiveMinimum": 0,
+          "title": "Reference Temperature",
+          "type": "number"
+        },
+        "sigma_p": {
+          "default": 0.0,
+          "description": "temperature sensitivity [1/K]",
+          "title": "Sigma P",
+          "type": "number"
+        },
+        "source": {
+          "default": "user",
+          "description": "data provenance note",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "a"
+      ],
+      "title": "BurnRateModel",
+      "type": "object"
+    },
+    "ThermalChem": {
+      "description": "Thermochemistry needed by the internal-ballistics model.\n\n``mode`` selects how the values were obtained so results stay traceable:\n\n* ``direct``      -- user typed c*, gamma, T_c directly\n* ``gibbs``       -- computed by the built-in Gibbs minimiser\n* ``rocketcea``   -- computed by the RocketCEA backend\n* ``cantera``     -- computed by the Cantera backend",
+      "properties": {
+        "c_star": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "characteristic velocity c* [m/s]",
+          "title": "C Star"
+        },
+        "chamber_pressure": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "p_c used for evaluation [Pa]",
+          "title": "Chamber Pressure"
+        },
+        "chamber_temperature": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "T_c [K]",
+          "title": "Chamber Temperature"
+        },
+        "gamma": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 1.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ratio of specific heats [-]",
+          "title": "Gamma"
+        },
+        "mode": {
+          "default": "direct",
+          "title": "Mode",
+          "type": "string"
+        },
+        "molecular_weight": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "exhaust M [kg/mol]",
+          "title": "Molecular Weight"
+        },
+        "source": {
+          "default": "user",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "title": "ThermalChem",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Complete propellant definition.",
+  "properties": {
+    "burn_rate": {
+      "$ref": "#/$defs/BurnRateModel"
+    },
+    "class_name": {
+      "default": "",
+      "description": "e.g. AP/HTPB, double-base, AP/Al/HTPB",
+      "title": "Class Name",
+      "type": "string"
+    },
+    "composition": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "title": "Composition",
+      "type": "object"
+    },
+    "density": {
+      "description": "rho_p [kg/m3]",
+      "exclusiveMinimum": 0,
+      "title": "Density",
+      "type": "number"
+    },
+    "heat_of_formation": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "propellant H_f [J/kg] (for Gibbs)",
+      "title": "Heat Of Formation"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "default": "",
+      "title": "Name",
+      "type": "string"
+    },
+    "notes": {
+      "default": "",
+      "title": "Notes",
+      "type": "string"
+    },
+    "source": {
+      "default": "user",
+      "description": "data provenance note",
+      "title": "Source",
+      "type": "string"
+    },
+    "thermo": {
+      "$ref": "#/$defs/ThermalChem"
+    }
+  },
+  "required": [
+    "id",
+    "density",
+    "burn_rate"
+  ],
+  "title": "PropellantModel",
+  "type": "object"
+}

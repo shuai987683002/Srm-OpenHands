@@ -298,6 +298,15 @@ raises rather than silently returning an empty port.
   with `--dump-dom` executes `app.js` and the fetch calls, which is enough to
   assert on rendered metrics and SVG. Playwright is not installed in this
   container and is not required.
+- `data/` is shipped twice on purpose: the repo-root copy is what scripts and
+  CI regenerate, and `src/srm_open/data/` is the copy that lands in the wheel.
+  `package-data` is relative to the package directory, so the root copy alone
+  never gets packaged and a plain `pip install` ends up with empty databases.
+  `tests/unit/test_package_data.py` compares every file; after regenerating
+  schemas or the thermo DB, run `python scripts/sync_package_data.py`.
+- `repo_root()` falls back to the package directory (not just the checkout) so
+  a wheel install resolves `data/...` correctly. Without that fallback the
+  paths resolve against the caller's cwd and `srm` reports empty databases.
 
 ## Boundaries
 

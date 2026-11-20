@@ -113,7 +113,8 @@ Srm-OpenHands/
 ├── src/srm_open/        # 计算内核与 API（models, thermo, geometry, burnback,
 │                        #   ballistics, performance, integrity, inverse,
 │                        #   orchestration, io, report, api, web）
-├── data/                # 模板库、推进剂库、热化学库
+│   └── data/            # data/ 的镜像副本，供 wheel 安装后定位数据库
+├── data/                # 模板库、推进剂库、热化学库（源副本，脚本在此生成）
 ├── configs/             # 分层配置
 ├── tests/               # unit / integration / verification
 ├── examples/            # 示例工程 + 教学 notebook

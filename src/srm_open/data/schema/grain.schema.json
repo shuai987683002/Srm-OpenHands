@@ -1,0 +1,131 @@
+{
+  "$defs": {
+    "BurnMode": {
+      "description": "Which surfaces of a segment burn.",
+      "enum": [
+        "internal",
+        "external",
+        "both",
+        "end"
+      ],
+      "title": "BurnMode",
+      "type": "string"
+    },
+    "GrainFamily": {
+      "description": "All supported grain cross-section families.",
+      "enum": [
+        "cylindrical",
+        "tube",
+        "tube_inhibited",
+        "star",
+        "wagon_wheel",
+        "slotted",
+        "finocyl",
+        "spherical",
+        "conical",
+        "multi_perforated",
+        "wedge",
+        "airfoil",
+        "embedded_wire",
+        "custom_polygon"
+      ],
+      "title": "GrainFamily",
+      "type": "string"
+    },
+    "GrainSegment": {
+      "description": "One axial segment of the grain.",
+      "properties": {
+        "burn_mode": {
+          "$ref": "#/$defs/BurnMode",
+          "default": "internal"
+        },
+        "family": {
+          "$ref": "#/$defs/GrainFamily"
+        },
+        "label": {
+          "default": "",
+          "title": "Label",
+          "type": "string"
+        },
+        "length": {
+          "description": "segment length [m]",
+          "exclusiveMinimum": 0,
+          "title": "Length",
+          "type": "number"
+        },
+        "outer_diameter": {
+          "description": "segment OD [m]",
+          "exclusiveMinimum": 0,
+          "title": "Outer Diameter",
+          "type": "number"
+        },
+        "params": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Params",
+          "type": "object"
+        },
+        "polygon": {
+          "anyOf": [
+            {
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Polygon"
+        }
+      },
+      "required": [
+        "family",
+        "length",
+        "outer_diameter"
+      ],
+      "title": "GrainSegment",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Full grain: ordered segments from fore to aft.",
+  "properties": {
+    "inhibit_ends": {
+      "default": true,
+      "description": "True: both axial ends inhibited (internal burning)",
+      "title": "Inhibit Ends",
+      "type": "boolean"
+    },
+    "segments": {
+      "items": {
+        "$ref": "#/$defs/GrainSegment"
+      },
+      "title": "Segments",
+      "type": "array"
+    },
+    "source": {
+      "default": "user",
+      "title": "Source",
+      "type": "string"
+    }
+  },
+  "required": [
+    "segments"
+  ],
+  "title": "GrainGeometry",
+  "type": "object"
+}

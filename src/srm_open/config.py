@@ -95,11 +95,15 @@ def repo_root() -> Path:
     """Best-effort root that relative data paths are resolved against.
 
     Order: ``SRM_OPEN_ROOT`` -> the PyInstaller bundle directory -> the checkout
-    that contains ``pyproject.toml`` -> the current directory.  The bundle case
-    matters for the standalone executable: a frozen binary has no source tree,
-    so without it every relative ``data/...`` path would fall through to the
-    caller's working directory and the propellant / template databases would be
-    missing.
+    that contains ``pyproject.toml`` -> the package directory -> the current
+    directory.
+
+    The bundle case matters for the standalone executable and the package case
+    for a wheel install: both have no source tree, so without a fallback every
+    relative ``data/...`` path would resolve against the caller's working
+    directory and the propellant / template databases would be empty.  The
+    package ships a copy of ``data/`` (see ``package-data``), so pointing at it
+    keeps a plain ``pip install`` usable outside a checkout.
     """
     env = os.environ.get("SRM_OPEN_ROOT")
     if env:
@@ -111,6 +115,9 @@ def repo_root() -> Path:
     for parent in here.parents:
         if (parent / "pyproject.toml").exists():
             return parent
+    package_data = here.parent / "data"
+    if package_data.is_dir():
+        return here.parent
     return Path.cwd()
 
 

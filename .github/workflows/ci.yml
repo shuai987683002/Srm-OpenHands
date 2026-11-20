@@ -30,7 +30,8 @@ jobs:
         # re-running scripts/build_schema.py and the committed schema is now a lie.
         run: |
           PYTHONPATH=src python scripts/build_schema.py
-          git diff --exit-code data/schema/
+          python scripts/sync_package_data.py
+          git diff --exit-code data/schema/ src/srm_open/data/
       - name: Unit + integration tests
         run: PYTHONPATH=src pytest tests/unit tests/integration -q
       - name: Verification (V&V) cases

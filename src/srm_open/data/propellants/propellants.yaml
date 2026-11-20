@@ -1,0 +1,88 @@
+# Srm-Open built-in propellant database.
+#
+# Every entry carries a `source` note.  Values are *generic, literature-reported*
+# representative properties for propellant CLASSES, given so the software runs
+# and so examples are reproducible.  They are NOT design allowables: replace
+# them with your own measured/qualified data before any real design use.
+#
+# Burn-rate law: r = a * p^n   (r [m/s], p [Pa])  -- Saint-Robert
+# Thermo: either `direct` (c*, gamma, M, T_c) or `gibbs` (composition +
+# heat_of_formation, computed by the built-in Gibbs minimiser).
+
+propellants:
+  ap_htpb_80:
+    name: "AP/HTPB 80/20 (generic)"
+    class_name: "composite, ammonium perchlorate / HTPB"
+    density: 1770.0
+    source: "generic composite class values; Sutton & Biblarz, Rocket Propulsion Elements (representative)"
+    burn_rate:
+      law: saint_robert
+      a: 5.0e-05
+      n: 0.35
+      sigma_p: 0.0018
+      source: "representative composite AP/HTPB; calibrate to your lot"
+    thermo:
+      mode: direct
+      c_star: 1550.0
+      gamma: 1.19
+      molecular_weight: 0.0245
+      chamber_temperature: 3100.0
+      source: "representative AP/HTPB; use the Gibbs backend for a first-principles value"
+
+  ap_htpb_75_al:
+    name: "AP/Al/HTPB 75/15/10 (generic)"
+    class_name: "composite, aluminised AP/HTPB"
+    density: 1810.0
+    source: "generic aluminised composite class values"
+    burn_rate:
+      law: saint_robert
+      a: 4.2e-05
+      n: 0.33
+      sigma_p: 0.0016
+      source: "representative aluminised composite"
+    thermo:
+      mode: direct
+      c_star: 1585.0
+      gamma: 1.16
+      molecular_weight: 0.0270
+      chamber_temperature: 3300.0
+      source: "representative aluminised composite"
+
+  double_base_ng:
+    name: "Double-base (nitroglycerine) generic"
+    class_name: "homogeneous double-base"
+    density: 1600.0
+    source: "generic double-base class values"
+    burn_rate:
+      law: saint_robert
+      a: 3.0e-05
+      n: 0.30
+      sigma_p: 0.0035
+      source: "representative double-base"
+    thermo:
+      mode: direct
+      c_star: 1500.0
+      gamma: 1.24
+      molecular_weight: 0.0235
+      chamber_temperature: 2900.0
+      source: "representative double-base"
+
+  ap_htpb_gibbs:
+    name: "AP/HTPB 80/20 (Gibbs-computed)"
+    class_name: "composite, ammonium perchlorate / HTPB"
+    density: 1770.0
+    source: >-
+      composition = mol/kg from AP (NH4ClO4) + HTPB (C4H6) at 80/20 mass;
+      Hf from AP -295.8 kJ/mol and HTPB -70 kJ/mol (generic).  NOTE: for
+      chlorine-containing systems the equilibrium temperature is sensitive to
+      the propellant formation enthalpy; validate against NASA CEA before use.
+    composition: {N: 6.809, H: 49.42, Cl: 6.809, O: 27.24, C: 14.79}
+    heat_of_formation: -2.272e+6
+    burn_rate:
+      law: saint_robert
+      a: 5.0e-05
+      n: 0.35
+      source: "representative composite AP/HTPB"
+    thermo:
+      mode: gibbs
+      source: "computed by the built-in Gibbs minimiser from composition"

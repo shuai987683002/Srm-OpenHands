@@ -1,0 +1,251 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Top-level design requirements (all SI unless noted).\n\nAny subset may be provided; :func:`consistency_check` reports which\nredundant relations hold and which are over/under-determined.",
+  "properties": {
+    "ambient_pressure": {
+      "default": 101325.0,
+      "description": "p_a [Pa]",
+      "minimum": 0,
+      "title": "Ambient Pressure",
+      "type": "number"
+    },
+    "average_thrust": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "average thrust [N]",
+      "title": "Average Thrust"
+    },
+    "burn_time": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "burn time t_b [s]",
+      "title": "Burn Time"
+    },
+    "chamber_length": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "grain length L [m]",
+      "title": "Chamber Length"
+    },
+    "expansion_ratio": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 1,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "eps = A_e/A_t [-]",
+      "title": "Expansion Ratio"
+    },
+    "length_ratio": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "L/D ratio [-]",
+      "title": "Length Ratio"
+    },
+    "max_chamber_pressure": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "p_c max [Pa]",
+      "title": "Max Chamber Pressure"
+    },
+    "max_sliver_fraction": {
+      "anyOf": [
+        {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "max sliver fraction [-]",
+      "title": "Max Sliver Fraction"
+    },
+    "min_load_fraction": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "min volumetric loading [-]",
+      "title": "Min Load Fraction"
+    },
+    "min_safety_factor": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 1,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "required SF [-]",
+      "title": "Min Safety Factor"
+    },
+    "name": {
+      "default": "unnamed",
+      "description": "case name",
+      "title": "Name",
+      "type": "string"
+    },
+    "outer_diameter": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "motor OD D [m]",
+      "title": "Outer Diameter"
+    },
+    "propellant_mass": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "propellant mass m_p [kg]",
+      "title": "Propellant Mass"
+    },
+    "specific_impulse": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "specific impulse I_sp [s]",
+      "title": "Specific Impulse"
+    },
+    "throat_diameter": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "d_t [m]",
+      "title": "Throat Diameter"
+    },
+    "thrust": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "vacuum/sea-level thrust F [N]",
+      "title": "Thrust"
+    },
+    "thrust_profile": {
+      "anyOf": [
+        {
+          "enum": [
+            "neutral",
+            "progressive",
+            "regressive"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "thrust shape preference",
+      "title": "Thrust Profile"
+    },
+    "total_impulse": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "total impulse I_t [N.s]",
+      "title": "Total Impulse"
+    }
+  },
+  "title": "RequirementSet",
+  "type": "object"
+}
