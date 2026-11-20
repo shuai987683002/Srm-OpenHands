@@ -4,7 +4,8 @@ Commands
 --------
   srm design      --thrust F --burn-time t [--family F] [--no-refine]  (indicators -> grain)
   srm forward     --template T --propellant P --thrust F --burn-time t [--report DIR]
-  srm inverse     --template T --propellant P --thrust F --burn-time t [--report DIR]
+  srm inverse     --template T | --family F --outer-diameter D
+                  --propellant P --thrust F --burn-time t [--report DIR]
   srm thermo      --propellant P [--pressure p]
   srm templates / srm propellants
   srm reverse     --project FILE            (reverse-engineer an existing grain)
@@ -38,7 +39,7 @@ from ..inverse.design import (
 from ..io.project import load_project, save_project, save_result_json
 from ..io.templates import TemplateLibrary
 from ..models.design_result import DesignResult
-from ..models.grain import GrainFamily
+from ..models.grain import BurnMode, GrainFamily
 from ..models.requirements import RequirementSet
 from ..orchestration.forward import forward_design
 from ..orchestration.study import monte_carlo, sweep
@@ -109,11 +110,29 @@ def cmd_design(args) -> int:
 
 
 def cmd_inverse(args) -> int:
-    grain_t = TemplateLibrary.load_default().geometry(args.template)
-    family = grain_t.segments[0].family
+    """Recover grain parameters from ballistic requirements.
+
+    A template is one starting point, but it is not required: ``--family`` with
+    ``--outer-diameter`` (and optionally ``--length``) is enough to build the
+    design space, which is what an engineer normally has before a grain exists.
+    """
+    if args.template:
+        seg = TemplateLibrary.load_default().geometry(args.template).segments[0]
+        family, outer_diameter = seg.family, seg.outer_diameter
+        length_hint = seg.length
+    else:
+        if not args.family or args.outer_diameter is None:
+            print("srm inverse: give --template, or --family together with "
+                  "--outer-diameter", file=sys.stderr)
+            return 2
+        family = GrainFamily(args.family)
+        outer_diameter = args.outer_diameter
+        length_hint = args.length or outer_diameter * 3.0
+
     prop = get_propellant(args.propellant)
-    space = default_design_space(family, grain_t.segments[0].outer_diameter,
-                                 (0.1, max(0.3, grain_t.segments[0].length * 2)))
+    space = default_design_space(family, outer_diameter,
+                                 (0.1, max(0.3, length_hint * 2)),
+                                 burn_mode=BurnMode(args.burn_mode))
     result = inverse_design(_req_from_args(args), prop, space,
                             method=args.optimizer, max_iter=args.max_iter)
     print("recovered params  : %s" % result.grain.segments[0].params)
@@ -264,9 +283,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="srm", description="Open-source solid rocket motor design")
     sub = p.add_subparsers(dest="command", required=True)
 
-    def add_common(sp):
+    def add_common(sp, template_required=True):
         sp.add_argument("--name", default="cli")
-        sp.add_argument("--template", required=True)
+        sp.add_argument("--template", required=template_required)
         sp.add_argument("--propellant", default="ap_htpb_80")
         sp.add_argument("--thrust", type=float, default=None)
         sp.add_argument("--burn-time", type=float, default=None)
@@ -307,7 +326,15 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_design)
 
     sp = sub.add_parser("inverse", help="inverse design from requirements")
-    add_common(sp)
+    # ``--template`` only seeds the design space; a family and an envelope are
+    # enough, so it is not mandatory here.
+    add_common(sp, template_required=False)
+    sp.add_argument("--family", default=None,
+                    help="grain family; used when --template is omitted")
+    sp.add_argument("--length", type=float, default=None,
+                    help="envelope length hint in m (default 3x outer diameter)")
+    sp.add_argument("--burn-mode", default="internal",
+                    choices=[m.value for m in BurnMode])
     sp.add_argument("--optimizer", default="nelder_mead")
     sp.add_argument("--max-iter", type=int, default=120)
     sp.set_defaults(func=cmd_inverse)

@@ -27,3 +27,12 @@ examples/projects/*/output/
 .idea/
 .vscode/
 examples/projects/*/study_result.json
+
+# PyInstaller / Windows build artefacts
+packaging/wheelhouse/
+dist/
+build/pyi/
+
+# built binaries (rebuild with packaging/build_windows_exe.sh)
+release/*.exe
+release/srm

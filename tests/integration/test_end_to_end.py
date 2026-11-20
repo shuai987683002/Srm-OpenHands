@@ -209,6 +209,21 @@ def test_cli_forward_writes_report_and_json(tmp_path):
     assert js.exists()
 
 
+def test_cli_inverse_works_without_a_template():
+    """Regression: ``--template`` used to be mandatory for ``srm inverse``, so a
+    designer who only knew the envelope had to pick an unrelated template."""
+    from srm_open.api.cli import main
+    assert main(["inverse", "--family", "star", "--outer-diameter", "0.15",
+                 "--thrust", "5000", "--burn-time", "3", "--max-iter", "25"]) == 0
+
+
+def test_cli_inverse_rejects_missing_envelope():
+    """Without a template the family *and* the outer diameter are both needed."""
+    from srm_open.api.cli import main
+    assert main(["inverse", "--family", "star", "--thrust", "5000",
+                 "--burn-time", "3"]) == 2
+
+
 # --------------------------------------------------------------------------
 # new CLI commands: sensitivity / sweep / monte-carlo / fit-outline / pointcloud
 # --------------------------------------------------------------------------

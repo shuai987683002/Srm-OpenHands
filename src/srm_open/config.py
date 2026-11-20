@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -91,10 +92,21 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
 
 def repo_root() -> Path:
-    """Best-effort repository root (parent of the ``src`` tree)."""
+    """Best-effort root that relative data paths are resolved against.
+
+    Order: ``SRM_OPEN_ROOT`` -> the PyInstaller bundle directory -> the checkout
+    that contains ``pyproject.toml`` -> the current directory.  The bundle case
+    matters for the standalone executable: a frozen binary has no source tree,
+    so without it every relative ``data/...`` path would fall through to the
+    caller's working directory and the propellant / template databases would be
+    missing.
+    """
     env = os.environ.get("SRM_OPEN_ROOT")
     if env:
         return Path(env)
+    bundle = getattr(sys, "_MEIPASS", None)
+    if bundle:
+        return Path(bundle)
     here = Path(__file__).resolve()
     for parent in here.parents:
         if (parent / "pyproject.toml").exists():

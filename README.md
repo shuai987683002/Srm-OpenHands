@@ -39,7 +39,10 @@ srm forward --template star_6_point --propellant ap_htpb_80 \
     --thrust 8000 --burn-time 4 --max-pressure 9e6 --report out/ --json out/r.json
 
 # 逆向设计：弹道要求 → 反推药型参数
+# 既可从模板出发（用模板的族与外径作为设计空间），也可直接给族与外径
 srm inverse --template star_6_point --thrust 6000 --burn-time 4 --max-pressure 9e6
+srm inverse --family star --outer-diameter 0.16 --length 0.6 \
+    --thrust 6000 --burn-time 4 --max-pressure 9e6
 
 # 逆向路径 A：二维端口轮廓 → 参数化药型参数
 srm fit-outline --points outline.csv --family slotted --outer-diameter 0.16 --length 0.6
@@ -123,12 +126,31 @@ PYTHONPATH=src python -m pytest --cov=srm_open                            # 覆�
 燃面双通道互校最大 < 8%；FEM 对比 Lamé < 0.4%（无体积锁死）；平衡压强闭式解一致、
 质量守恒残差 ~1e-15。
 
+## 独立可执行文件（免 Python 环境）
+
+无需安装 Python 与依赖，直接运行单个可执行文件（内置 `data/`、`configs/`）：
+
+```bash
+# Windows（在 Linux 上用 Wine 容器交叉构建，产物为真正的 PE32+ 可执行文件）
+./packaging/build_windows_exe.sh          # → release/srm.exe
+release/srm.exe design --thrust 5000 --burn-time 3 --outer-diameter 0.15 --family star
+
+# Linux（本机 PyInstaller）
+.venv/bin/pyinstaller packaging/srm_open.spec --noconfirm \
+    --distpath dist --workpath build/pyi  # → dist/srm
+dist/srm inverse --family star --outer-diameter 0.15 --thrust 5000 --burn-time 3
+```
+
+两个产物均通过内置 8 项校核（推力、工作时间、比冲、峰值压强、喉径、装药量等），
+且输出与源码运行逐字节一致。可执行文件为构建产物，不纳入版本库。
+
 ## 文档
 - 完整实现方案：[docs/开源固体火箭发动机设计软件实现方案.md](docs/开源固体火箭发动机设计软件实现方案.md)
 - 用户指南：[docs/user_guide/user_guide.md](docs/user_guide/user_guide.md)
 - 理论模型：[docs/theory/](docs/theory/)（内弹道 / 燃面 / 假设）
 - 校核报告：[docs/verification/verification_report.md](docs/verification/verification_report.md)
 - 需求合规矩阵（FR/NFR 逐条证据）：[docs/requirements_compliance.md](docs/requirements_compliance.md)
+- 打包与分发：[docs/packaging.md](docs/packaging.md)
 - 贡献规范：[CONTRIBUTING.md](CONTRIBUTING.md)
 
 > 免责声明：本仓库及文档由 AI 辅助整理（OpenHands），仅用于学习与交流。

@@ -1,0 +1,56 @@
+# Build a Windows ``srm.exe`` from this Linux checkout.
+#
+# PyInstaller cannot cross-compile, so the Windows build runs a real Windows
+# CPython under Wine.  The result is a genuine PE32+ executable, not a wrapper.
+#
+#   sudo docker build -f packaging/Dockerfile.windows -t srm-win .
+#   sudo docker run --rm -v "$PWD/dist:/out" srm-win
+#
+# The binary lands in ``dist/srm.exe``.
+FROM tobix/wine:stable
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV WINEDEBUG=-all
+ENV WINEPREFIX=/root/.wine
+
+# Windows CPython via the embeddable zip: the GUI installer needs a desktop
+# session that Wine does not provide reliably, while the zip is a plain unpack.
+ENV PYVER=3.11.9
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates unzip && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL -o /tmp/py.zip \
+        "https://www.python.org/ftp/python/${PYVER}/python-${PYVER}-embed-amd64.zip" \
+ && mkdir -p /py && unzip -q /tmp/py.zip -d /py \
+ && printf '%s\n' "python311.zip" "." "Lib\\site-packages" "import site" \
+        > /py/python311._pth \
+ && curl -fsSL -o /py/get-pip.py https://bootstrap.pypa.io/get-pip.py \
+ && wine /py/python.exe /py/get-pip.py --no-warn-script-location
+
+WORKDIR /src
+COPY pyproject.toml uv.lock README.md ./
+COPY src ./src
+COPY data ./data
+COPY configs ./configs
+COPY packaging ./packaging
+
+# Runtime + build dependencies.  ``--extra all`` is deliberately avoided: it
+# pulls the Fortran thermochemistry backends (rocketcea/cantera) which need a
+# compiler toolchain and are optional.
+# Wheelhouse of win_amd64 wheels prepared on the host (``packaging/build_windows_exe.sh``).
+# Installing offline is required: pip inside Wine cannot complete TLS handshakes
+# against PyPI in this image.
+COPY packaging/wheelhouse /wheelhouse
+RUN wine /py/python.exe -m pip install --no-warn-script-location \
+        --no-index --find-links Z:\\wheelhouse \
+        numpy scipy shapely pyyaml matplotlib fastapi uvicorn pymoo \
+        scikit-image pyinstaller
+
+# PyInstaller's contributed shapely hook reads ``os.environ['PATH']`` and Wine
+# does not populate that variable in the Windows environment block, so the build
+# dies with ``KeyError: 'PATH'``.  Running through a .bat lets ``set`` populate
+# the block before PyInstaller starts.
+RUN /usr/bin/wine cmd /c Z:\\src\\packaging\\build_exe.bat
+
+CMD ["cp", "/src/dist/srm.exe", "/out/srm.exe"]

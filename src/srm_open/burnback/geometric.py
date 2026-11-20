@@ -33,7 +33,7 @@ class BurnbackCurve:
 
 
 def _segment_area_at(segment: GrainSegment, e: float, web: float,
-                     quad_segs: int = 64) -> float:
+                     quad_segs: int = 32) -> float:
     """Burning area of one segment at burn distance ``e``.
 
     A segment is fully consumed once ``e`` reaches its web thickness; beyond
@@ -47,7 +47,7 @@ def _segment_area_at(segment: GrainSegment, e: float, web: float,
 
 
 def burnback_geometric(grain: GrainGeometry, n_steps: int = 200,
-                       quad_segs: int = 64) -> BurnbackCurve:
+                       quad_segs: int = 32) -> BurnbackCurve:
     """Compute A_b(e) for the whole grain (sum over segments).
 
     ``quad_segs`` controls the polygon resolution of the Minkowski dilation; the

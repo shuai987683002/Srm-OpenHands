@@ -33,6 +33,27 @@ def test_tube_web_thickness_is_analytic():
     assert web_thickness(seg) == pytest.approx((0.16 - 0.06) / 2.0, rel=1e-6)
 
 
+def test_web_thickness_is_the_gap_at_the_farthest_port_point():
+    """The web is set by the *farthest* port point, not the nearest.
+
+    Vectorising this loop once turned ``min(r_out - r)`` into
+    ``r_out - max(r)``, which is the same thing, but a plain transcription slip
+    to ``r_out - min(r)`` reports the deepest web instead of the shallowest and
+    inflates the burn time.  Cross-check against the brute-force definition.
+    """
+    import math
+
+    seg = GrainSegment(family=GrainFamily.MULTI_PERFORATED, length=0.5,
+                       outer_diameter=0.18,
+                       params={"perf_diameter": 0.03, "n_perforations": 7})
+    port = port_polygon(seg)
+    parts = [port] if port.geom_type == "Polygon" else list(port.geoms)
+    r_out = seg.outer_diameter / 2.0
+    brute = min(r_out - math.hypot(x, y)
+                for g in parts for x, y in g.exterior.coords)
+    assert web_thickness(seg) == pytest.approx(brute, rel=1e-9)
+
+
 def test_tube_burning_area_is_analytic():
     # internal burning tube: A_b = pi * D_i * L, constant until the port opens out
     seg = GrainSegment(family=GrainFamily.TUBE, length=0.5, outer_diameter=0.16,

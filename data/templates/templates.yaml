@@ -35,7 +35,7 @@ templates:
         length: 0.5
         outer_diameter: 0.16
         burn_mode: internal
-        params: {n_points: 6, inner_diameter: 0.04, point_diameter: 0.12, point_half_angle: 30}
+        params: {n_points: 6, inner_diameter: 0.04, point_diameter: 0.12, point_half_angle: 10}
 
   star_8_point_filleted:
     name: "8-point filleted star"
@@ -45,7 +45,7 @@ templates:
         length: 0.6
         outer_diameter: 0.20
         burn_mode: internal
-        params: {n_points: 8, inner_diameter: 0.05, point_diameter: 0.15, point_half_angle: 25, fillet: 0.003}
+        params: {n_points: 8, inner_diameter: 0.05, point_diameter: 0.15, point_half_angle: 10, fillet: 0.003}
 
   wagon_wheel_6:
     name: "6-spoke wagon wheel"
@@ -130,7 +130,7 @@ templates:
         length: 0.3
         outer_diameter: 0.16
         burn_mode: internal
-        params: {n_points: 6, inner_diameter: 0.04, point_diameter: 0.12, point_half_angle: 30}
+        params: {n_points: 6, inner_diameter: 0.04, point_diameter: 0.12, point_half_angle: 10}
 
   wedge_6:
     name: "6-sector wedge port (near-neutral plateau)"

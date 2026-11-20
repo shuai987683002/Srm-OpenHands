@@ -33,11 +33,10 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 import numpy as np
-from shapely.geometry import MultiPolygon, Point, Polygon
-from shapely.validation import make_valid
+from shapely.geometry import Point, Polygon
 
 from ..models.grain import BurnMode, GrainFamily, GrainSegment
-from .families import build_port
+from .families import build_port, repair_polygon
 
 
 @dataclass
@@ -53,25 +52,7 @@ class SegmentAnalysis:
     notes: list[str]
 
 
-def _safe(poly):
-    """Repair a port geometry without discarding any of its components.
-
-    A port may legitimately be *disconnected* -- seven perforations are seven
-    separate voids, not one.  Reducing a MultiPolygon to its largest part (the
-    old behaviour) silently dropped six of the seven holes and halved the
-    burning area, so the components are kept and only invalid geometry is
-    repaired.
-    """
-    if poly is None or poly.is_empty:
-        return Polygon()
-    if not poly.is_valid:
-        poly = make_valid(poly)
-    if poly.geom_type == "GeometryCollection":
-        polys = [g for g in poly.geoms if g.geom_type == "Polygon" and not g.is_empty]
-        if not polys:
-            return Polygon()
-        poly = polys[0] if len(polys) == 1 else MultiPolygon(polys)
-    return poly
+_safe = repair_polygon
 
 
 def _parts(geom) -> list[Polygon]:
@@ -103,13 +84,22 @@ def _outer_circle_cached(diameter: float) -> Polygon:
 # signature.  A plain dict is used rather than ``lru_cache`` because
 # ``GrainSegment`` is a pydantic model and therefore unhashable.
 _PORT_CACHE: dict[tuple, Polygon] = {}
+_WEB_CACHE: dict[tuple, float] = {}
 _PORT_CACHE_LIMIT = 512
 
 
 def _segment_key(segment: GrainSegment) -> tuple:
-    return (segment.family.value, segment.outer_diameter,
-            tuple(sorted(segment.params.items())),
-            tuple(segment.polygon) if segment.polygon else None)
+    # ``burn_mode`` and ``length`` are part of the key because the port polygon
+    # is not: a solid end-burning segment and a ported internal-burning one can
+    # share a family and a diameter while their web thicknesses differ.
+    return (
+        segment.family.value,
+        segment.burn_mode.value,
+        segment.outer_diameter,
+        segment.length,
+        tuple(sorted(segment.params.items())),
+        tuple(segment.polygon) if segment.polygon else None,
+    )
 
 
 def port_polygon(segment: GrainSegment) -> Polygon:
@@ -126,7 +116,7 @@ def port_polygon(segment: GrainSegment) -> Polygon:
     return poly
 
 
-def _burning_port(segment: GrainSegment, e: float, quad_segs: int = 64) -> Polygon:
+def _burning_port(segment: GrainSegment, e: float, quad_segs: int = 32) -> Polygon:
     """Port void after burn distance ``e`` (internal burning)."""
     port = port_polygon(segment)
     if port.is_empty:
@@ -148,8 +138,7 @@ def _outer_radius_at(segment: GrainSegment, e: float) -> float:
     return max(segment.outer_diameter / 2.0 - e, 0.0)
 
 
-def burning_perimeter(segment: GrainSegment, e: float,
-                      quad_segs: int = 64) -> float:
+def burning_perimeter(segment: GrainSegment, e: float, quad_segs: int = 32) -> float:
     """Total burning perimeter per unit axial length at burn distance ``e``."""
     mode = segment.burn_mode
     per = 0.0
@@ -178,8 +167,7 @@ def _wire_area(segment: GrainSegment, e: float, web: float) -> float:
     return n * 2.0 * math.pi * r_w * min(max(e, 0.0), web)
 
 
-def burning_area(segment: GrainSegment, e: float,
-                 quad_segs: int = 64) -> float:
+def burning_area(segment: GrainSegment, e: float, quad_segs: int = 32) -> float:
     """Burning surface area of the segment [m2] at burn distance ``e``."""
     if segment.burn_mode == BurnMode.END:
         # cigarette burning: the end face is consumed axially, its area stays
@@ -196,6 +184,18 @@ def burning_area(segment: GrainSegment, e: float,
 
 def web_thickness(segment: GrainSegment) -> float:
     """Maximum burn distance before the grain is consumed."""
+    key = _segment_key(segment)
+    cached = _WEB_CACHE.get(key)
+    if cached is not None:
+        return cached
+    value = _web_thickness_uncached(segment)
+    if len(_WEB_CACHE) >= _PORT_CACHE_LIMIT:
+        _WEB_CACHE.clear()
+    _WEB_CACHE[key] = value
+    return value
+
+
+def _web_thickness_uncached(segment: GrainSegment) -> float:
     r_out = segment.outer_diameter / 2.0
     port = port_polygon(segment)
     if port.is_empty:
@@ -208,8 +208,12 @@ def web_thickness(segment: GrainSegment) -> float:
 
     # radial gap = min over port points of (r_out - r_point)
     coords = _boundary_coords(port)
-    min_gap = (min(r_out - math.hypot(x, y) for x, y in coords)
-               if len(coords) else r_out)
+    if len(coords):
+        # the gap is set by the *farthest* port point, not the nearest: it is the
+        # shortest web between the port boundary and the outer wall
+        min_gap = float(r_out - np.max(np.hypot(coords[:, 0], coords[:, 1])))
+    else:
+        min_gap = r_out
     if segment.burn_mode == BurnMode.BOTH:
         # both surfaces burn towards each other
         return min_gap / 2.0
@@ -238,8 +242,26 @@ def analyze_segment(segment: GrainSegment) -> SegmentAnalysis:
             fraction = wire_area / outer.area
             notes.append(
                 f"embedded wires: {n} x {2 * r_w * 1e3:.2f} mm, "
-                f"{fraction:.2%} of the cross-section is metal")
+                f"{fraction:.2%} of the cross-section is metal"
+            )
         prop_area = max(prop_area - wire_area, 0.0)
+    if segment.family == GrainFamily.STAR:
+        # A requested half-angle past the feasible ceiling silently produces the
+        # symmetric star, so say so instead of reporting a parameter that had no
+        # effect on the outline the user is looking at.
+        from .families import max_star_half_angle
+
+        alpha = segment.params.get("point_half_angle")
+        if alpha is not None:
+            limit = max_star_half_angle(
+                int(round(segment.params.get("n_points", 0))),
+                min(segment.params.get("point_diameter", 0.0) / 2.0, r_out),
+                segment.params.get("inner_diameter", 0.0) / 2.0)
+            if limit > 0.0 and alpha > limit * (1.0 + 1e-6):
+                notes.append(
+                    f"point_half_angle {alpha:g} deg exceeds the feasible ceiling "
+                    f"({limit:.1f} deg at this tip/valley ratio); the outline is the "
+                    f"symmetric star, so the angle had no effect")
     web = web_thickness(segment)
     if web <= 0:
         notes.append("zero web thickness (port touches outer wall)")

@@ -18,7 +18,7 @@ from .levelset import levelset_grain_burnback
 
 def compute_burnback(grain: GrainGeometry, method: str = "analytic",
                      n_steps: int = 200, nx: int = 240, ny: int = 240,
-                     quad_segs: int = 64) -> BurnbackResult:
+                     quad_segs: int = 32) -> BurnbackResult:
     """Return a :class:`BurnbackResult` for the requested method."""
     if method == "levelset":
         res = levelset_grain_burnback(grain, n_snapshots=n_steps, nx=nx, ny=ny)

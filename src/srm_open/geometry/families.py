@@ -16,6 +16,7 @@ from collections.abc import Callable
 
 from shapely.geometry import MultiPolygon, Point, Polygon
 from shapely.ops import unary_union
+from shapely.validation import make_valid
 
 from ..models.grain import GrainFamily
 
@@ -122,6 +123,38 @@ def build_tube_inhibited(p: dict, r_outer: float) -> Polygon:
     return _circle(p["inner_diameter"] / 2.0)
 
 
+def max_star_half_angle(n: int, r_tip: float, r_valley: float) -> float:
+    """Largest ``point_half_angle`` [deg] that still changes the star outline.
+
+    The valley half-width is ``phi = asin((r_tip/r_valley) sin a) - a`` and it is
+    clamped at the symmetric value ``pi/n``.  Once the requested angle pushes
+    ``phi`` past that limit every larger angle produces the same symmetric star,
+    so the parameter becomes unidentifiable.  For the usual 3:1 tip-to-valley
+    ratio this ceiling is only ~10-13 deg, well below the 25-30 deg values that
+    look natural, which is why the templates use low angles.
+    """
+    if n <= 0 or r_valley <= 0.0 or r_tip <= r_valley:
+        return 0.0
+
+    def phi_of(a_deg: float) -> float:
+        a = math.radians(a_deg)
+        s = (r_tip / r_valley) * math.sin(a)
+        return math.asin(s) - a if s < 1.0 else math.pi / 2.0 - a
+
+    limit = math.pi / n
+    hi = math.degrees(math.asin(min(r_valley / r_tip, 1.0)))
+    if phi_of(hi * (1.0 - 1e-9)) <= limit:
+        return hi * (1.0 - 1e-9)
+    lo = 0.0
+    for _ in range(200):
+        mid = 0.5 * (lo + hi)
+        if phi_of(mid) > limit:
+            hi = mid
+        else:
+            lo = mid
+    return lo
+
+
 def build_star(p: dict, r_outer: float) -> Polygon:
     """Classic star port (alternating tip/valley polygon).
 
@@ -167,18 +200,20 @@ def build_star(p: dict, r_outer: float) -> Polygon:
     port = Polygon(pts).intersection(_circle(r_outer))
     if fillet and fillet > 0:
         port = port.buffer(fillet, join_style=1).buffer(-fillet, join_style=1)
-    return _safe_polygon(port)
+    return repair_polygon(port)
 
 
-def _safe_polygon(poly):
+def repair_polygon(poly):
     """Repair a port outline, keeping every component.
 
-    A multi-perforated port is genuinely several disjoint voids; collapsing a
-    MultiPolygon to its largest part would delete most of the perforations and
-    quietly change the burning area.
-    """
-    from shapely.validation import make_valid
+    A port may legitimately be *disconnected* -- seven perforations are seven
+    separate voids, not one.  Collapsing a MultiPolygon to its largest part
+    silently drops most of the perforations and halves the burning area, so the
+    components are kept and only invalid geometry is repaired.
 
+    This is the single implementation; ``geometry.analysis`` re-exports it
+    because the burn-back path needs exactly the same semantics.
+    """
     if poly is None or poly.is_empty:
         return Polygon()
     if not poly.is_valid:
@@ -219,7 +254,7 @@ def build_wagon_wheel(p: dict, r_outer: float) -> Polygon:
         parts.append(Polygon([(x * ca - y * sa, x * sa + y * ca) for x, y in channel]))
         parts.append(_circle_at(pitch * ca, pitch * sa, r_bulb))
     port = unary_union(parts).intersection(_circle(r_outer))
-    return _safe_polygon(port)
+    return repair_polygon(port)
 
 
 def build_slotted(p: dict, r_outer: float) -> Polygon:
@@ -242,7 +277,7 @@ def build_slotted(p: dict, r_outer: float) -> Polygon:
                 (r_end, w / 2), (r_bore * 0.5, w / 2)]
         parts.append(Polygon([(x * ca - y * sa, x * sa + y * ca) for x, y in slot]))
     port = unary_union(parts).intersection(_circle(r_outer))
-    return _safe_polygon(port)
+    return repair_polygon(port)
 
 
 def build_finocyl(p: dict, r_outer: float) -> Polygon:
@@ -266,7 +301,7 @@ def build_finocyl(p: dict, r_outer: float) -> Polygon:
         rot = [(x * ca - y * sa, x * sa + y * ca) for x, y in fin]
         parts.append(Polygon(rot))
     port = unary_union(parts).intersection(_circle(r_outer))
-    return _safe_polygon(port)
+    return repair_polygon(port)
 
 
 def build_spherical(p: dict, r_outer: float) -> Polygon:
@@ -325,7 +360,7 @@ def build_wedge(p: dict, r_outer: float) -> Polygon:
 
     parts: list[Polygon] = [_circle(r_hub)]
     if n <= 0 or r_tip <= r_hub or half <= 0.0:
-        return _safe_polygon(_circle(r_hub))
+        return repair_polygon(_circle(r_hub))
     # keep neighbouring wedges from overlapping: the full angle cannot exceed the
     # pitch, or the cavities merge into an annulus
     half = min(half, 0.5 * math.pi / n)
@@ -343,7 +378,7 @@ def build_wedge(p: dict, r_outer: float) -> Polygon:
         parts.append(Polygon(pts))
 
     port = unary_union(parts).intersection(_circle(r_outer))
-    return _safe_polygon(port)
+    return repair_polygon(port)
 
 
 def _naca_half_thickness(x: float, thickness_ratio: float) -> float:
@@ -375,7 +410,7 @@ def build_airfoil(p: dict, r_outer: float) -> Polygon:
 
     parts: list[Polygon] = [_circle(r_hub)]
     if n <= 0 or chord <= 0.0 or ratio <= 0.0:
-        return _safe_polygon(_circle(r_hub))
+        return repair_polygon(_circle(r_hub))
 
     # The blade root is buried inside the hub bore.  A root that merely touched
     # the hub circle would meet it at a single point, and the union of the parts
@@ -402,7 +437,7 @@ def build_airfoil(p: dict, r_outer: float) -> Polygon:
         parts.append(Polygon(rot))
 
     port = unary_union(parts).intersection(_circle(r_outer))
-    return _safe_polygon(port)
+    return repair_polygon(port)
 
 
 def build_embedded_wire(p: dict, r_outer: float) -> Polygon:
