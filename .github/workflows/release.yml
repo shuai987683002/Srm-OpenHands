@@ -41,44 +41,65 @@ jobs:
 
   windows-exe:
     needs: version-check
-    runs-on: ubuntu-latest
+    # Build natively on Windows. The Wine-in-Docker path used by
+    # packaging/build_windows_exe.sh works on a workstation but not on GitHub's
+    # runners: the default seccomp profile blocks a socket syscall Wine needs
+    # ("wine: socket : Function not implemented"), so the image build dies
+    # before PyInstaller starts.
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
-      # Runner images ship a docker daemon; the build runs Windows CPython under
-      # Wine because PyInstaller cannot cross-compile.
-      - name: Build srm.exe (Wine container)
-        run: ./packaging/build_windows_exe.sh
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install runtime + build dependencies
+        # `--extra all` is deliberately avoided: it pulls the Fortran
+        # thermochemistry backends (rocketcea/cantera) which need a compiler
+        # toolchain and are optional.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[api,viz,optimize]" pyinstaller
+
+      - name: Build srm.exe
+        run: pyinstaller packaging/srm_open.spec --noconfirm --distpath dist --workpath build/pyi
 
       - name: Smoke-test the frozen binary
         # A binary that cannot design a motor is not a release artefact.
         run: |
-          set -eu
-          docker run --rm -v "$PWD/release:/rel:ro" srm-win \
-            wine /rel/srm.exe design --thrust 4000 --burn-time 2.5 \
-            | tee /tmp/design.txt
-          grep -q "verification      : 8/8 passed" /tmp/design.txt
+          dist\srm.exe design --thrust 4000 --burn-time 2.5 | Tee-Object -FilePath design.txt
+          if (-not (Select-String -Path design.txt -Pattern "verification      : 8/8 passed" -Quiet)) {
+            throw "design smoke test did not report 8/8"
+          }
 
       - name: Verify the embedded web UI serves
+        shell: pwsh
         run: |
-          set -eu
-          docker run --rm -d --name srm-ui -p 18000:18000 \
-            -v "$PWD/release:/rel:ro" srm-win \
-            wine /rel/srm.exe serve --host 0.0.0.0 --port 18000
-          trap 'docker rm -f srm-ui >/dev/null 2>&1 || true' EXIT
-          for i in $(seq 1 40); do
-            curl -sf -o /dev/null http://127.0.0.1:18000/ui/ && break || sleep 3
-          done
-          for path in /ui/ /ui/app.js /families /propellants; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:18000$path")
-            echo "$path -> $code"
-            [ "$code" = "200" ]
-          done
+          $p = Start-Process -FilePath "dist\srm.exe" `
+                 -ArgumentList "serve","--host","127.0.0.1","--port","18000" -PassThru
+          try {
+            $up = $false
+            foreach ($i in 1..40) {
+              try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 `
+                      "http://127.0.0.1:18000/ui/" | Out-Null; $up = $true; break }
+              catch { Start-Sleep -Seconds 3 }
+            }
+            if (-not $up) { throw "server never came up" }
+            foreach ($path in "/ui/","/ui/app.js","/families","/propellants") {
+              $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 "http://127.0.0.1:18000$path"
+              Write-Host "$path -> $($r.StatusCode)"
+              if ($r.StatusCode -ne 200) { throw "$path returned $($r.StatusCode)" }
+            }
+          } finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
 
       - name: Checksums
+        shell: bash
         run: |
+          mkdir -p release
+          cp dist/srm.exe release/srm.exe
           cd release
           sha256sum srm.exe > SHA256SUMS
           cat SHA256SUMS
