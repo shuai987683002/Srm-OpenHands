@@ -28,6 +28,17 @@ PYTHONPATH=src python scripts/sensitivity.py --out output/sensitivity
 The core engine runs **offline**. `cantera` / `rocketcea` are only used to
 generate reference values in the verification tests, never at runtime.
 
+`-o addopts=""` is needed to see the pass/fail counts: `addopts = "-q"` in
+`pyproject.toml` suppresses the summary line, so a green run prints only dots
+and an `EXIT=0`. Current state: **143 passed, 1 skipped**, ~6.5 min.
+
+Four integration tests guard the design-loop failure modes, because those
+failures were silent (a plausible-looking design that missed the target) rather
+than loud: `test_forward_design_hits_targets_for_every_internal_burning_family`,
+`test_wagon_wheel_leaves_web_between_bulbs_and_case`,
+`test_forward_design_rejects_a_port_that_fills_the_case`,
+`test_inverse_design_converges_from_a_documented_space`. Keep them.
+
 ## Layout (actual)
 
 ```
@@ -76,23 +87,88 @@ docs/            plan, architecture.md, theory/, user_guide/, verification/
   mean burn area and web; `design_forward` refines the web target from the
   realized (burn-rate-weighted) mean pressure so burn time lands on target.
 - **Forward synthesis is two-stage** (`api/facade.py:design_forward`): after the
-  analytical synthesis, a warm-started Nelder-Mead **local refinement**
-  (`_refine_synthesis`, plan §5.1 step 7) polishes the grain so thrust / burn
-  time / total impulse hit the targets on the same forward model. Examples
-  06/07 reach 9/9. Pass `refine=False` for fast parameter sweeps. The refinement
-  is *local*: a far-off synthesis seed needs a larger `refine_max_iter` or the
-  global `inverse_design` optimiser.
+  analytical synthesis, a **local refinement** (`_refine_synthesis`, plan §5.1
+  step 7) polishes the grain so thrust / burn time / total impulse hit the
+  targets on the same forward model. Examples 06/07 reach 9/9, and every grain
+  family reaches 9/9 for 5000 N / 3 s in 1–13 s. Pass `refine=False` for fast
+  parameter sweeps. The refinement is *local*: a far-off synthesis seed needs a
+  larger `refine_max_iter` or the global `inverse_design` optimiser.
+- **The refinement is coordinate-wise, not a simplex.** One finite difference
+  per coordinate ranks them by thrust and by burn-time sensitivity; the thrust
+  coordinate takes a multiplicative step that is accepted only if the combined
+  objective improves, and the burn-time coordinate is solved by marching
+  (doubling the step until the target is crossed) and then a bracketed
+  secant/bisection. Do not replace it with Nelder-Mead: each evaluation costs a
+  full burn-back sweep, the objective has flat shelves, and bounds clip.
+- **Burn time is solved by crossing the target, not by shrinking the error.**
+  A burn-time probe over one small parameter step routinely jumps past the
+  target, so "accept only if closer" leaves the solver stuck with no direction
+  (`best_dir=0`) and burn time never moves. It must accept a step that lands
+  closer *after* bracketing, which is what the march-and-bisect does.
+- **One coordinate may serve both thrust and burn time.** Families with a
+  single free shape coordinate (wagon-wheel `spoke_length`) move thrust and burn
+  time together; `i_tb` therefore falls back to `i_f` instead of insisting on a
+  distinct coordinate.
+- **Integer parameters must be rounded inside the optimiser too.** `clipped()`
+  rounds `Parameter(integer=True)` entries; without that the refinement
+  evaluates several distinct vectors that map to one geometry and wastes
+  evaluations (wagon wheel went 29 s -> 12 s).
+- **`refine_iters=1` is enough.** The refinement is strong enough that a single
+  synthesis pass suffices; raising it multiplies runtime for no accuracy gain.
 - **Do not size the throat from thrust.** Throat sizing is from the target
   chamber pressure (`size_throat_from_pressure`); sizing from thrust drops the
   operating pressure and degrades every other metric. Thrust matching belongs to
   the refinement/inverse layer, not the nozzle sizing.
+- **`cylindrical` is an end-burner and cannot meet short burn times.** It burns
+  as a cigarette (t_b = L / r), so 5000 N / 3 s at 160 mm is physically out of
+  reach (it returns ~32 s and 5/8 checks). The verification checks reporting the
+  miss is the correct outcome, not a bug: do not "fix" it by widening bounds.
+- **A grain with no burning surface must fail loudly.** `forward_design` raises
+  when the peak burning area is zero (port fills the cross-section); otherwise
+  the throat diameter becomes 0 and pydantic rejects it far from the cause.
 - **The three multi-cavity families are distinct by construction**: wagon wheel
   = bore + thin radial channels + circular outer bulbs; slotted = bore + constant
   width square-ended slots; finocyl = bore + fins tapering to 40 % width at the
   tip. They were once three renames of one "bore + rectangles" builder — keep
-  `test_slotted_finocyl_wagon_wheel_are_distinct` green. Ports must stay a single
-  connected `Polygon`; a disconnected union is silently truncated by
-  `_safe_polygon`, which is how the wagon-wheel bulbs once vanished.
+  `test_slotted_finocyl_wagon_wheel_are_distinct` green. Those three must each
+  stay a *single* connected `Polygon` (a bulb or fin that only touches the bore
+  at one point yields a disconnected union), which is why their builders bury the
+  feature root inside the bore.
+- **Multi-perforation holes need a real web.** The ring pitch used to be exactly
+  `2*rp`, which makes the centre hole tangent to all six ring holes and each ring
+  hole tangent to its neighbours. Zero web: the port fuses into one blob after
+  0.5 mm of burn and the burning *perimeter* falls, so the thrust came out wrong.
+  `web_fraction` (default 0.15 of the hole diameter) sets the pitch; keep it.
+- **The refinement must close on the full model.** `_refine_synthesis` screens
+  with `fast=True` (quad=16, 48 burn-back steps) but the user receives a
+  full-resolution result. The screening model reads 5000 N / 3.000 s while the
+  full model reads 4897 N / 3.043 s on a 7-perf grain — the coarse sweep
+  straddles the burn-area step where the holes merge. `_polish_on_full_model`
+  runs afterwards, closing burn time first (on the web-carrying coordinate, which
+  also moves thrust) then thrust (on length, which does not touch the web). Never
+  drop that polish, and never trust the screening residual as the reported one.
+- **A port may legitimately be a `MultiPolygon`.** Seven perforations are seven
+  separate voids. `_safe_polygon` / `analysis._safe` used to reduce a
+  MultiPolygon to its largest component, which silently kept 2 of the 7 holes and
+  halved the burning area — a wrong thrust level with no error. They now keep
+  every component, and `test_multi_perforation_keeps_every_hole` guards it.
+  Anything that walks a port must iterate components (`geometry.analysis._parts`,
+  `_boundary_coords`, `sketch.segment_outlines`, `viz._port_rings`), never
+  `port.exterior`.
+- **A radial flank can be collinear with a sampling ray.** `_angular_signature`
+  intersects each ray with the port boundary; on a wedge or slot the flank lies
+  *along* the ray, so the intersection is a `LineString`, not a `Point`. Handle
+  every geometry type (take the far end of a segment), or the wedge fit crashes.
+- **Embedded wires add burning area, they are not voids.** `embedded_wire` is a
+  bore plus inert radial wires: the port is the plain bore, and
+  `analysis._wire_area` adds `N_w*2*pi*r_w*min(e, e_max)` — a term that *grows*
+  with the web, which is the whole point of the family. Their cross-section is
+  subtracted from the propellant area. Wire ablation/thermal effects are not
+  modelled.
+- **Wagon-wheel bulbs must stop short of the case wall.** Clamping them to
+  `r_outer - r_bulb` puts the port exactly on the outer surface, leaving zero web
+  and a degenerate burn-back; `families.build_wagon_wheel` keeps a tenth of the
+  radius as web.
 - **`shapely` is a hard core dependency** (`geometry/analysis.py`,
   `geometry/families.py`, `burnback/levelset.py`). It is declared in
   `pyproject.toml` core deps — keep it there; a missing shapely breaks the
@@ -100,6 +176,29 @@ docs/            plan, architecture.md, theory/, user_guide/, verification/
 - **`inverse_convergence`** is judged on the achieved objective residual, not the
   optimiser's `success` flag (Nelder-Mead reports `success=False` on simplex
   shrink even when the physical targets are met).
+- **`inverse_design` is coarse global search plus polish.** The differential
+  evolution population only has to land in the right basin (`max_iter=25`), then
+  the same `_refine_synthesis` polish the forward design uses closes the loop.
+  Driving the population itself to a tight tolerance cost 4x the runtime
+  (finocyl 461 s -> 112 s). The inner objective screens with `fast=True`; the
+  reported `inverse_convergence` residual is recomputed on the full-resolution
+  result, so it reads ~1e-5 (the screening model alone would flatter it to
+  1e-13). Never report the screening residual: it describes a design the user
+  did not receive.
+- **Compare candidates on the full model, not the screening one.** The population
+  search may use `fast=True`, but the decision "is the polished point better than
+  the raw one?" must use `full_objective`. Judging it on the coarse model threw
+  away the correct multi-perforated point: the full model read 5000 N / 2.99 s
+  while the coarse model scored it *worse* than the unpolished candidate, because
+  the 48-step sweep straddles the hole-merge step. The reported result then
+  stayed 2.06 % low even though the right design had been found.
+  `test_inverse_design_selects_candidates_on_the_full_model` guards this.
+- **The inverse design space needs a usable length range.** `inverse_design`
+  cannot converge if the caller passes a `length_range` that excludes the
+  required grain length: every candidate then misses thrust, the objective
+  bottoms out at the bound, and the residual stays near 1e-1. Example: 5000 N /
+  3 s at 160 mm needs L ≈ 0.28 m, so `(0.4, 1.2)` is infeasible while
+  `(0.1, 1.2)` converges.
 - **Three inverse paths, do not conflate them**: A = `fit_outline` (2-D port
   outline / point cloud -> theta), B = `fit_burn_area` (A_b(e) -> theta), C =
   `inverse_design` (indicators -> theta). A only sees one cross-section, so the

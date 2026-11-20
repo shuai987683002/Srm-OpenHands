@@ -17,12 +17,22 @@ from .analysis import outer_circle, port_polygon
 
 
 def segment_outline(segment: GrainSegment, n: int | None = None) -> list[tuple[float, float]]:
-    """Ordered port outline points (outer boundary first) for the sketch."""
+    """Ordered port outline points for the sketch.
+
+    A multi-perforated port has several disjoint boundaries; they are returned
+    end to end in one list, which is what a sketch renderer that draws polylines
+    wants.  Use :func:`segment_outlines` when the components must stay separate.
+    """
+    return [pt for ring in segment_outlines(segment) for pt in ring]
+
+
+def segment_outlines(segment: GrainSegment) -> list[list[tuple[float, float]]]:
+    """One point ring per connected port component (outer circle for a solid)."""
     port = port_polygon(segment)
     if port.is_empty:
-        # solid grain: outline is the outer circle
-        return [(x, y) for x, y in outer_circle(segment).exterior.coords]
-    return [(float(x), float(y)) for x, y in port.exterior.coords]
+        return [[(x, y) for x, y in outer_circle(segment).exterior.coords]]
+    geoms = port.geoms if port.geom_type == "MultiPolygon" else [port]
+    return [[(float(x), float(y)) for x, y in g.exterior.coords] for g in geoms]
 
 
 def sketch_payload(grain: GrainGeometry) -> dict:
@@ -38,6 +48,7 @@ def sketch_payload(grain: GrainGeometry) -> dict:
                 "burn_mode": seg.burn_mode.value,
                 "outer": [(float(x), float(y)) for x, y in outer.exterior.coords],
                 "port": segment_outline(seg),
+                "port_rings": segment_outlines(seg),
                 "params": seg.params,
             }
         )

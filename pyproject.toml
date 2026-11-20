@@ -36,7 +36,11 @@ report = ["matplotlib>=3.7"]
 thermo_external = ["rocketcea>=1.0", "cantera>=3.0"]
 api = ["fastapi>=0.110", "uvicorn>=0.29", "httpx>=0.27"]
 optimize = ["pymoo>=0.6"]
-dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.4", "jsonschema>=4.20"]
+dev = [
+  "pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.4", "jsonschema>=4.20",
+  # the suite exercises the level-set channel (V4 cross-check), which needs it
+  "scikit-image>=0.22",
+]
 all = [
   "matplotlib>=3.7", "cadquery>=2.4", "scikit-image>=0.22",
   "pymoo>=0.6", "fastapi>=0.110", "uvicorn>=0.29", "httpx>=0.27",

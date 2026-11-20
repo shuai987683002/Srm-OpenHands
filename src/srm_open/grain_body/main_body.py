@@ -36,10 +36,14 @@ def _equivalent_solid_cylinder_volume(grain: GrainGeometry) -> float:
 
 def compute_grain_body(grain: GrainGeometry, propellant_density: float,
                        sliver_threshold: float = 0.10,
-                       chamber_diameter: float | None = None) -> GrainBodyResult:
-    curve = burnback_geometric(grain, n_steps=200)
-    a_b0 = float(curve.burn_area[0]) if len(curve.burn_area) else 0.0
-    a_bf = float(curve.burn_area[-1]) if len(curve.burn_area) else 0.0
+                       chamber_diameter: float | None = None,
+                       curve=None) -> GrainBodyResult:
+    if curve is None:
+        curve = burnback_geometric(grain, n_steps=200)
+    area = np.asarray(curve.burn_area, dtype=float)
+    dist = np.asarray(curve.burn_distance, dtype=float)
+    a_b0 = float(area[0]) if area.size else 0.0
+    a_bf = float(area[-1]) if area.size else 0.0
     prop_vol = curve.propellant_volume
     web = curve.web_thickness
 
@@ -49,18 +53,18 @@ def compute_grain_body(grain: GrainGeometry, propellant_density: float,
 
     # sliver: residual propellant when A_b falls below the threshold of A_b0
     sliver_mass = 0.0
-    if a_b0 > 0 and len(curve.burn_area) > 1:
-        below = np.where(curve.burn_area < sliver_threshold * a_b0)[0]
+    if a_b0 > 0 and area.size > 1:
+        below = np.where(area < sliver_threshold * a_b0)[0]
         if len(below):
             idx = int(below[0])
             # residual propellant volume: integrate (port area growth) approx
             # V_residual = prop_vol - integral(A_b de) from 0..sliver_e
             if hasattr(np, "trapezoid"):
-                burned = float(np.trapezoid(curve.burn_area[: idx + 1],
-                                            curve.burn_distance[: idx + 1]))
+                burned = float(np.trapezoid(area[: idx + 1],
+                                            dist[: idx + 1]))
             else:  # pragma: no cover
-                burned = float(np.trapz(curve.burn_area[: idx + 1],
-                                        curve.burn_distance[: idx + 1]))
+                burned = float(np.trapz(area[: idx + 1],
+                                        dist[: idx + 1]))
             residual_vol = max(prop_vol - burned, 0.0)
             sliver_mass = residual_vol * propellant_density
 

@@ -7,6 +7,7 @@
 |---|---|
 | [internal_ballistics.md](internal_ballistics.md) | 燃速定律、平衡压强、瞬态充填、c*/推力、建模假设 |
 | [burnback_models.md](burnback_models.md) | 几何解析通道、Level-Set 通道、双通道互校、药型族 |
+| [grain_cavity_families.md](grain_cavity_families.md) | 各类内腔（回转/等截面/星形/翼型/楔形/嵌金属丝）的几何参数、构型特征、适用工况与燃面/性能对比 |
 | [assumptions.md](assumptions.md) | 全项目假设与适用域（含"资料不足"处明确声明） |
 
 ## 代码对照

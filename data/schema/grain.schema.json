@@ -24,6 +24,9 @@
         "spherical",
         "conical",
         "multi_perforated",
+        "wedge",
+        "airfoil",
+        "embedded_wire",
         "custom_polygon"
       ],
       "title": "GrainFamily",

@@ -62,6 +62,12 @@ def test_star_port_area_is_positive_and_bounded():
     (GrainFamily.MULTI_PERFORATED, {"n_perforations": 7, "perf_diameter": 0.012}),
     (GrainFamily.SPHERICAL, {"cavity_diameter": 0.10}),
     (GrainFamily.CONICAL, {"base_diameter": 0.12, "apex_diameter": 0.0}),
+    (GrainFamily.WEDGE, {"n_wedges": 6, "inner_diameter": 0.04,
+                         "tip_diameter": 0.14, "wedge_angle": 22}),
+    (GrainFamily.AIRFOIL, {"n_blades": 6, "inner_diameter": 0.04,
+                           "blade_chord": 0.06, "thickness_ratio": 0.15}),
+    (GrainFamily.EMBEDDED_WIRE, {"inner_diameter": 0.06, "n_wires": 8,
+                                 "wire_diameter": 0.001}),
 ])
 def test_all_families_produce_valid_port(family, params):
     seg = GrainSegment(family=family, length=0.4, outer_diameter=0.18, params=params)
@@ -98,6 +104,134 @@ def test_slotted_finocyl_wagon_wheel_are_distinct():
             a, b = ports[names[i]], ports[names[j]]
             assert a.symmetric_difference(b).area > 1e-4, \
                 f"{names[i]} and {names[j]} are the same geometry"
+
+
+def test_airfoil_keeps_every_blade():
+    """The blade root sits *inside* the hub bore.
+
+    A root that only touched the hub circle met it at a single point, so the
+    union came out disconnected and the repair path kept one blade plus the hub.
+    """
+    def exposed(n_blades):
+        seg = GrainSegment(family=GrainFamily.AIRFOIL, length=0.4,
+                           outer_diameter=0.18,
+                           params={"n_blades": n_blades, "inner_diameter": 0.04,
+                                   "blade_chord": 0.06, "thickness_ratio": 0.15})
+        port = port_polygon(seg)
+        assert port.is_valid
+        return port.area - math.pi / 4 * 0.04 ** 2
+
+    # each blade contributes the same exposed area, so the total must scale with
+    # the count; a dropped blade shows up as a ratio far from 6/5
+    assert exposed(6) / exposed(5) == pytest.approx(6 / 5, rel=0.05)
+    assert exposed(6) > 0.0
+
+
+def test_wedge_sector_area_matches_the_analytic_sector():
+    """One wedge is a sector of the hub/tip annulus: A = n * (a/2) * (r_t**2 - r_h**2)."""
+    n, d_hub, d_tip, angle = 6, 0.04, 0.14, 22.0
+    seg = GrainSegment(family=GrainFamily.WEDGE, length=0.4, outer_diameter=0.18,
+                       params={"n_wedges": n, "inner_diameter": d_hub,
+                               "tip_diameter": d_tip, "wedge_angle": angle})
+    port = port_polygon(seg)
+    a = math.radians(angle)
+    expected = math.pi / 4 * d_hub ** 2 + n * 0.5 * a * ((d_tip / 2) ** 2 - (d_hub / 2) ** 2)
+    assert port.area == pytest.approx(expected, rel=0.02)
+
+
+def test_wedge_angle_is_clamped_to_the_pitch():
+    """Beyond 360/n the cavities would merge into an annulus, so the builder
+    clamps: two different over-wide angles must give the same port."""
+    def port_at(angle):
+        seg = GrainSegment(family=GrainFamily.WEDGE, length=0.4, outer_diameter=0.18,
+                           params={"n_wedges": 4, "inner_diameter": 0.04,
+                                   "tip_diameter": 0.14, "wedge_angle": angle})
+        return port_polygon(seg)
+
+    assert port_at(120.0).area == pytest.approx(port_at(150.0).area, rel=1e-6)
+
+
+def test_embedded_wire_bore_is_the_plain_bore():
+    """The wires are not voids, so the port is exactly the bore circle."""
+    seg = GrainSegment(family=GrainFamily.EMBEDDED_WIRE, length=0.4, outer_diameter=0.18,
+                       params={"inner_diameter": 0.06, "n_wires": 8,
+                               "wire_diameter": 0.001})
+    port = port_polygon(seg)
+    assert port.area == pytest.approx(math.pi / 4 * 0.06 ** 2, rel=0.01)
+
+
+def test_wedge_airfoil_star_differ_at_equal_lobe_count():
+    """Same six lobes, three different cavity shapes: the burn-area *shape* is
+    what distinguishes them, so the ports must not coincide."""
+    od = 0.18
+    specs = {
+        "wedge": (GrainFamily.WEDGE, {"n_wedges": 6, "inner_diameter": 0.04,
+                                      "tip_diameter": 0.14, "wedge_angle": 22}),
+        "airfoil": (GrainFamily.AIRFOIL, {"n_blades": 6, "inner_diameter": 0.04,
+                                          "blade_chord": 0.06, "thickness_ratio": 0.15}),
+        "star": (GrainFamily.STAR, {"n_points": 6, "inner_diameter": 0.04,
+                                    "point_diameter": 0.14, "point_half_angle": 25}),
+    }
+    ports = {name: port_polygon(GrainSegment(family=fam, length=0.4, outer_diameter=od,
+                                             params=par))
+             for name, (fam, par) in specs.items()}
+    names = list(ports)
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            a, b = ports[names[i]], ports[names[j]]
+            assert a.symmetric_difference(b).area > 1e-4, f"{names[i]} == {names[j]}"
+
+
+def test_multi_perforated_holes_are_separated_by_a_web():
+    """The holes must not be tangent.
+
+    A ring radius of exactly 2*rp made the centre hole tangent to all six ring
+    holes and each ring hole tangent to its neighbours: zero web, so the port
+    fused into a blob after 0.5 mm of burn and the burning perimeter *fell*.
+    """
+    seg = GrainSegment(family=GrainFamily.MULTI_PERFORATED, length=0.4,
+                       outer_diameter=0.18,
+                       params={"n_perforations": 7, "perf_diameter": 0.012})
+    port = port_polygon(seg)
+    assert port.geom_type == "MultiPolygon"
+    assert len(port.geoms) == 7
+    # the perimeter must grow monotonically through the early burn, i.e. the
+    # holes are still separate at a burn depth well below the web
+    prev = port.length
+    for e in (0.0002, 0.0004, 0.0006):
+        cur = port.buffer(e).length
+        assert cur > prev, f"perimeter fell at e={e}: {prev:.6f} -> {cur:.6f}"
+        prev = cur
+    # and the web really is the requested fraction of the hole diameter
+    rp = 0.006
+    centres = sorted((g.centroid.x, g.centroid.y) for g in port.geoms)
+    r_ring = min(math.hypot(x, y) for x, y in centres if math.hypot(x, y) > 1e-9)
+    assert r_ring - 2 * rp == pytest.approx(0.15 * 0.012, rel=0.05)
+
+
+def test_multi_perforated_nineteen_holes_use_two_rings():
+    """The 19-hole layout is centre + 6 + 12, all separated by a web."""
+    seg = GrainSegment(family=GrainFamily.MULTI_PERFORATED, length=0.5,
+                       outer_diameter=0.30,
+                       params={"n_perforations": 19, "perf_diameter": 0.012})
+    port = port_polygon(seg)
+    assert port.geom_type == "MultiPolygon"
+    assert len(port.geoms) == 19
+    radii = sorted({round(math.hypot(g.centroid.x, g.centroid.y), 6)
+                    for g in port.geoms})
+    assert len(radii) == 3, radii          # centre, inner ring, outer ring
+    assert radii[0] == pytest.approx(0.0, abs=1e-9)
+    assert radii[2] - radii[1] == pytest.approx(radii[1], rel=0.02)
+
+
+def test_multi_perforated_port_stays_disconnected():
+    """A 7-perf port must keep all seven voids; collapsing to one component is
+    the failure that halved the burning area."""
+    seg = GrainSegment(family=GrainFamily.MULTI_PERFORATED, length=0.4,
+                       outer_diameter=0.18,
+                       params={"n_perforations": 7, "perf_diameter": 0.01})
+    port = port_polygon(seg)
+    assert port.area == pytest.approx(7 * math.pi * 0.005 ** 2, rel=0.02)
 
 
 def _grain(seg):
@@ -273,9 +407,9 @@ def test_outline_fit_recovers_family_parameters(family, params, count_key):
 
 
 def test_star_angle_beyond_feasible_is_clamped():
-    # documents the physics behind the 10 deg choice above: past ~14 deg the
-    # requested half-angle cannot be realised for these radii, so the outline
-    # stops changing and the parameter becomes unidentifiable
+    # documents the physics behind the 10 deg choice above: past ~17 deg (for
+    # these radii and 6 points) the requested half-angle cannot be realised, so
+    # the outline stops changing and the parameter becomes unidentifiable
     from srm_open.geometry.families import build_star
     a = build_star({"n_points": 6, "inner_diameter": 0.05, "point_diameter": 0.13,
                     "point_half_angle": 20}, 0.08)

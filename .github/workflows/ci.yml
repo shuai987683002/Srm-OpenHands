@@ -16,7 +16,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install (core only, offline engine)
+      - name: Install (offline engine + everything the suite exercises)
+        # `dev` pulls scikit-image: V4 cross-checks the level-set channel against
+        # the vector one, and the performance job times it. Without it those
+        # tests error out instead of running.
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,viz]"

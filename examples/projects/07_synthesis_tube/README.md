@@ -23,7 +23,7 @@ PYTHONPATH=src python examples/run_case.py examples/projects/07_synthesis_tube
 
 ## 预期结果（实测）
 - 合成药型：管形（内部燃烧，渐进）。
-- 平均推力 ≈ 2500.0 N，工作时间 ≈ 5.0000 s。
+- 平均推力 ≈ 2500.0 N，工作时间 ≈ 4.9979 s。
 - 校核：9/9 项全部通过。
 
 ## 说明

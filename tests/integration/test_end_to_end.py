@@ -5,8 +5,9 @@ import math
 import pytest
 
 from srm_open.api import design_forward, design_from_template, list_templates
-from srm_open.api.facade import get_propellant
+from srm_open.api.facade import get_propellant, make_grain
 from srm_open.burnback.geometric import burnback_geometric
+from srm_open.geometry.analysis import analyze_segment, burning_area, port_polygon
 from srm_open.inverse import (
     analyze_existing_grain,
     default_design_space,
@@ -15,8 +16,9 @@ from srm_open.inverse import (
     inverse_design,
 )
 from srm_open.io import TemplateLibrary, load_project, save_project
-from srm_open.models.grain import GrainFamily
+from srm_open.models.grain import GrainFamily, GrainSegment
 from srm_open.models.requirements import RequirementSet
+from srm_open.orchestration.forward import forward_design
 from srm_open.report import write_report
 
 
@@ -297,3 +299,152 @@ def test_cli_pointcloud_export(tmp_path):
     assert len(lines) > 100
     x, y, z = (float(v) for v in lines[0].split())
     assert math.hypot(x, y) <= 0.081
+
+
+# --------------------------------------------------------------------------
+# forward-design robustness: the failure modes that the refinement hid
+# --------------------------------------------------------------------------
+def test_forward_design_hits_targets_for_every_internal_burning_family():
+    """Every family except the end burner must land on 5000 N / 3 s.
+
+    The refinement is the only part of the chain that closes on thrust, so a
+    family that silently fails to refine (a dead search direction, a parameter
+    that does not move) shows up here as a large thrust error rather than as an
+    exception.
+    """
+    families = [
+        GrainFamily.TUBE, GrainFamily.TUBE_INHIBITED, GrainFamily.STAR,
+        GrainFamily.WAGON_WHEEL, GrainFamily.SLOTTED, GrainFamily.FINOCYL,
+        GrainFamily.SPHERICAL, GrainFamily.CONICAL, GrainFamily.MULTI_PERFORATED,
+        GrainFamily.WEDGE, GrainFamily.AIRFOIL, GrainFamily.EMBEDDED_WIRE,
+    ]
+    for family in families:
+        r = design_forward({"thrust": 5000, "burn_time": 3.0,
+                            "outer_diameter": 0.16}, "ap_htpb_80", family=family)
+        assert abs(r.performance.average_thrust / 5000 - 1) < 0.02, family
+        assert abs(r.performance.burn_time / 3.0 - 1) < 0.02, family
+
+
+def test_refinement_closes_on_the_full_model_not_the_screening_one():
+    """The delivered result is recomputed at full resolution.
+
+    The refinement screens with ``fast=True`` (16-segment polygons, 48 burn-back
+    steps) and used to stop there.  On a multi-perforated grain the coarse sweep
+    straddles the burn-area step where the holes merge, so the screening model
+    read 5000 N / 3.00 s while the full model read 4897 N / 3.043 s: a 2 % thrust
+    miss on a result the checks had already passed.  The polish on the full model
+    has to keep every family inside 0.5 % on both indicators.
+    """
+    for family in (GrainFamily.MULTI_PERFORATED, GrainFamily.TUBE,
+                   GrainFamily.WEDGE, GrainFamily.AIRFOIL):
+        r = design_forward({"thrust": 5000, "burn_time": 3.0,
+                            "outer_diameter": 0.16}, "ap_htpb_80", family=family)
+        assert abs(r.performance.average_thrust / 5000 - 1) < 0.005, family
+        assert abs(r.performance.burn_time / 3.0 - 1) < 0.005, family
+
+
+def test_forward_design_accepts_an_explicit_fast_flag():
+    """Passing ``fast`` must not collide with the internal screening call.
+
+    ``design_forward`` runs its re-synthesis loop on the cheap model, so it
+    passed ``fast=True`` positionally *and* forwarded ``**kwargs``.  A caller
+    that also set ``fast`` then hit "got multiple values for keyword argument
+    'fast'" instead of getting a design.
+    """
+    for flag in (True, False):
+        r = design_forward({"thrust": 5000, "burn_time": 3.0,
+                            "outer_diameter": 0.16}, family="tube", fast=flag)
+        assert r.performance is not None and r.performance.average_thrust > 0
+
+
+def test_inverse_design_selects_candidates_on_the_full_model():
+    """The inverse loop must not judge polished candidates with the coarse model.
+
+    The forward polish closes on the full model, but the inverse loop used to
+    compare candidates with ``fast=True``.  A multi-perforated design that the
+    full model read as 5000 N / 2.99 s therefore scored *worse* than an
+    unpolished one on the coarse model and was thrown away, so the reported
+    result stayed 2.06 % low even though the correct point had been found.
+    """
+    from srm_open.inverse.design import default_design_space, inverse_design
+
+    req = RequirementSet(name="inv", thrust=5000.0, burn_time=3.0,
+                         outer_diameter=0.16)
+    prop = get_propellant("ap_htpb_80")
+    space = default_design_space(GrainFamily.MULTI_PERFORATED, 0.16, (0.2, 0.9))
+    r = inverse_design(req, prop, space, max_iter=8, polish_max_iter=40)
+    assert abs(r.performance.average_thrust / 5000.0 - 1) < 0.005
+    assert abs(r.performance.burn_time / 3.0 - 1) < 0.005
+    conv = [c for c in r.verification.checks if c["name"] == "inverse_convergence"]
+    assert conv and conv[0]["passed"]
+
+
+def test_multi_perforation_keeps_every_hole():
+    """A 7-perf port is seven disjoint voids.
+
+    Reducing the MultiPolygon to its largest component (the old repair path)
+    kept two of the seven holes and halved the burning area, which showed up as
+    a wrong thrust level rather than as an error.
+    """
+    grain = make_grain("multi_perforated", 0.5, 0.18,
+                       {"n_perforations": 7, "perf_diameter": 0.01})
+    port = port_polygon(grain.segments[0])
+    area = math.pi * 0.005 ** 2
+    assert port.area == pytest.approx(7 * area, rel=0.02)
+    assert analyze_segment(grain.segments[0]).web_thickness > 0.0
+
+
+def test_embedded_wire_burning_area_grows_with_the_web():
+    """The wires are inert and stay put, so each one exposes its side as the
+    propellant recedes: A_b must increase, and by n*2*pi*r_w*e."""
+    grain = make_grain("embedded_wire", 0.5, 0.18,
+                       {"inner_diameter": 0.06, "n_wires": 8, "wire_diameter": 0.001})
+    seg = grain.segments[0]
+    web = analyze_segment(seg).web_thickness
+    a0 = burning_area(seg, 0.0)
+    a1 = burning_area(seg, 0.5 * web)
+    wire_term = 8 * 2.0 * math.pi * 0.0005 * (0.5 * web)
+    # the bore growth also adds area, so the wire term is a *lower* bound on the
+    # increment and the exact difference must exceed it
+    assert a1 - a0 > wire_term
+    # and with the wires removed the increment must be smaller by exactly that
+    bare = GrainSegment(family=GrainFamily.TUBE, length=seg.length,
+                        outer_diameter=seg.outer_diameter,
+                        params={"inner_diameter": 0.06})
+    assert (a1 - a0) - (burning_area(bare, 0.5 * web) - burning_area(bare, 0.0)) == \
+        pytest.approx(wire_term, rel=1e-6)
+
+
+def test_wagon_wheel_leaves_web_between_bulbs_and_case():
+    """The bulbs used to be clamped onto the case wall, giving zero web: the
+    port filled the cross-section and the burn-back collapsed."""
+    grain = make_grain("wagon_wheel", 0.4, 0.18,
+                       {"n_spokes": 6, "inner_diameter": 0.05,
+                        "spoke_width": 0.02, "spoke_length": 0.05})
+    port = port_polygon(grain.segments[0])
+    r_max = max(math.hypot(x, y) for x, y in port.exterior.coords)
+    web = 0.18 / 2 - r_max
+    assert web > 0.005, f"web {web:.4f} m is too thin to burn back"
+
+
+def test_forward_design_rejects_a_port_that_fills_the_case():
+    """A zero burning surface must fail with a readable message instead of
+    producing a zero throat diameter and a pydantic error far from the cause."""
+    grain = make_grain("tube", 0.4, 0.16, {"inner_diameter": 0.16})
+    req = RequirementSet(name="degenerate", thrust=5000.0, burn_time=3.0,
+                         outer_diameter=0.16)
+    with pytest.raises(ValueError, match="no burning surface"):
+        forward_design(req, grain, get_propellant("ap_htpb_80"))
+
+
+def test_inverse_design_converges_from_a_documented_space():
+    """The inverse loop must reach the targets, not merely run: the residual is
+    reported as a verification check and is what a user reads."""
+    prop = get_propellant("ap_htpb_80")
+    req = RequirementSet(name="inv", thrust=5000.0, burn_time=3.0,
+                         outer_diameter=0.16)
+    space = default_design_space(GrainFamily.TUBE, 0.16, (0.1, 1.2))
+    r = inverse_design(req, prop, space)
+    conv = next(c for c in r.verification.checks if c["name"] == "inverse_convergence")
+    assert conv["passed"], conv
+    assert abs(r.performance.average_thrust / 5000 - 1) < 0.02

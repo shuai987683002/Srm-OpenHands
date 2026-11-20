@@ -25,7 +25,7 @@ and compatible with this project's Apache-2.0 license.
 |---|---|---|---|
 | matplotlib | 3.11.2 | PSF-based (BSD-compatible) | report plots, 3-D previews |
 | cadquery | 2.8.0 | Apache-2.0 | STEP export |
-| scikit-image | 0.26.0 | BSD-3-Clause | level-set helpers |
+| scikit-image | 0.26.0 | BSD-3-Clause | level-set helpers; also in the `dev` extra because V4 cross-checks that channel |
 | cantera | 3.2.0 | BSD-3-Clause | reference thermo (tests only) |
 | rocketcea | — | Apache-2.0 | optional thermo backend |
 | pymoo | — | Apache-2.0 | optional multi-objective optimiser |

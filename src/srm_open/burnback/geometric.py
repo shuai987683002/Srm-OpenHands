@@ -32,7 +32,8 @@ class BurnbackCurve:
     notes: list[str] = field(default_factory=list)
 
 
-def _segment_area_at(segment: GrainSegment, e: float, web: float) -> float:
+def _segment_area_at(segment: GrainSegment, e: float, web: float,
+                     quad_segs: int = 64) -> float:
     """Burning area of one segment at burn distance ``e``.
 
     A segment is fully consumed once ``e`` reaches its web thickness; beyond
@@ -42,11 +43,16 @@ def _segment_area_at(segment: GrainSegment, e: float, web: float) -> float:
         return 0.0
     if e >= web:
         return 0.0
-    return _seg_area(segment, e)
+    return _seg_area(segment, e, quad_segs=quad_segs)
 
 
-def burnback_geometric(grain: GrainGeometry, n_steps: int = 200) -> BurnbackCurve:
-    """Compute A_b(e) for the whole grain (sum over segments)."""
+def burnback_geometric(grain: GrainGeometry, n_steps: int = 200,
+                       quad_segs: int = 64) -> BurnbackCurve:
+    """Compute A_b(e) for the whole grain (sum over segments).
+
+    ``quad_segs`` controls the polygon resolution of the Minkowski dilation; the
+    optimiser inner loop lowers it to trade a little accuracy for speed.
+    """
     segs = grain.segments
     webs = [_seg_web(s) for s in segs]
     web_max = max(webs) if webs else 0.0
@@ -59,7 +65,7 @@ def burnback_geometric(grain: GrainGeometry, n_steps: int = 200) -> BurnbackCurv
     for i, e in enumerate(e_grid):
         total = 0.0
         for seg, w in zip(segs, webs):
-            total += _segment_area_at(seg, float(e), w)
+            total += _segment_area_at(seg, float(e), w, quad_segs=quad_segs)
         area[i] = total
 
     prop_vol = 0.0

@@ -31,7 +31,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ..burnback.geometric import burn_area_at, burnback_geometric
+from ..burnback.geometric import burnback_geometric
 from ..constants import R_UNIVERSAL
 from ..models.grain import GrainGeometry
 from ..models.nozzle import NozzleModel
@@ -77,6 +77,13 @@ def solve_equilibrium(inputs: BallisticsInputs, n_steps: int | None = None) -> I
 
     curve = burnback_geometric(grain, n_steps=max(n_steps or 200, 50))
     e_max = curve.web_thickness
+    # A_b(e) is tabulated by the sweep above; interpolating it avoids repeating a
+    # full shapely burn-back evaluation at every march step.
+    e_grid = np.asarray(curve.burn_distance)
+    ab_grid = np.asarray(curve.burn_area)
+
+    def area_at(e: float) -> float:
+        return float(np.interp(e, e_grid, ab_grid))
 
     times: list[float] = []
     presses: list[float] = []
@@ -91,7 +98,7 @@ def solve_equilibrium(inputs: BallisticsInputs, n_steps: int | None = None) -> I
     guard = 0
     while e < e_max - 1e-12 and guard < 2_000_000:
         guard += 1
-        a_b = burn_area_at(grain, e)
+        a_b = area_at(e)
         p = equilibrium_pressure(a_b, rho_p, inputs.c_star, a_coef, n_exp, a_t,
                                  inputs.pressure_floor)
         r = r_fn(max(p, 1.0))
@@ -140,6 +147,12 @@ def solve_transient(inputs: BallisticsInputs, n_steps: int | None = None,
     rho_p = prop.density
     curve = burnback_geometric(grain, n_steps=max(n_steps or 200, 50))
     e_max = curve.web_thickness
+    e_grid = np.asarray(curve.burn_distance)
+    ab_grid = np.asarray(curve.burn_area)
+
+    def area_at(e: float) -> float:
+        return float(np.interp(e, e_grid, ab_grid))
+
     a_t = nozzle.throat_area
     Rt = R_UNIVERSAL * inputs.chamber_temperature / inputs.molecular_weight
 
@@ -155,7 +168,7 @@ def solve_transient(inputs: BallisticsInputs, n_steps: int | None = None,
     def rhs(t, y):
         e, p = y
         p = max(p, 1.0)
-        a_b = burn_area_at(grain, e)
+        a_b = area_at(e)
         r = r_fn(p)
         V = inputs.free_volume0 + burned_volume(e)
         # d(pV)/(dt) / (R T) = rho_p A_b r - p A_t/c*
@@ -172,7 +185,7 @@ def solve_transient(inputs: BallisticsInputs, n_steps: int | None = None,
                     t_eval=t_eval, rtol=rtol, atol=atol, method="LSODA", max_step=t_end_est / 50)
     e_arr = np.clip(sol.y[0], 0.0, e_max)
     p_arr = np.maximum(sol.y[1], 0.0)
-    a_b_arr = np.array([burn_area_at(grain, float(ee)) for ee in e_arr])
+    a_b_arr = np.array([area_at(float(ee)) for ee in e_arr])
     mgen = rho_p * a_b_arr * np.array([r_fn(max(pp, 1.0)) for pp in p_arr])
     mout = p_arr * a_t / inputs.c_star
     peak = float(np.max(p_arr)) if len(p_arr) else 0.0

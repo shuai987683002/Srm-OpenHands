@@ -39,7 +39,7 @@ PYTHONPATH=src pytest -m performance -q -s    # NFR-3 性能预算
 | 编号 | 需求 | 实现位置 | 验证证据 | 状态 |
 |---|---|---|---|---|
 | NFR-1 | 跨平台，Python ≥ 3.10 | `pyproject.toml:requires-python` | 纯 Python + numpy/scipy，无平台专有调用 | ✅ |
-| NFR-2 | 数值可复现：固定种子、记录版本与依赖哈希、依赖锁定 | `provenance.py`、`orchestration/forward.py`、`uv.lock` | `test_provenance_records_dependencies_and_input_hash`：同输入哈希相同、异输入不同；`uv sync --frozen` 实测可复现安装（111 包，含哈希） | ✅ |
+| NFR-2 | 数值可复现：固定种子、记录版本与依赖哈希、依赖锁定 | `provenance.py`、`orchestration/forward.py`、`uv.lock` | `test_provenance_records_dependencies_and_input_hash`：同输入哈希相同、异输入不同；`uv sync --frozen` 实测可复现安装（130 包，含哈希） | ✅ |
 | NFR-3 | 单次零维内弹道 < 1 s；Level-Set 单方案 < 30 s | 数值实现 | `pytest -m performance -s`：实测 357 ms / 0.07 s（60×60×20） | ✅ |
 | NFR-4 | 核心模块测试覆盖率 ≥ 80% | `tests/` | `pytest --cov=srm_open`：**86%**（3462 语句，476 未覆盖） | ✅ |
 | NFR-5 | 插件式注册（推进剂/燃速/喷管/燃面算法）+ 数据集 schema | `geometry/families.py:register_family`、`propellant/burn_rate.py:register_burn_rate_law`、`data/schema/`、`scripts/build_schema.py` | `test_burn_rate_law_is_pluggable`（运行时替换燃速律）；`test_every_grain_family_has_a_builder_and_a_design_space`；`test_schema.py` 11 项（schema 与模型一致、5 个示例工程全部通过校验、坏数据被拒） | ✅ |

@@ -15,6 +15,7 @@ from .sketch import (
     grain_to_step,
     grain_to_stl,
     segment_outline,
+    segment_outlines,
     sketch_payload,
 )
 
@@ -23,5 +24,5 @@ __all__ = [
     "initial_burning_area", "port_polygon", "web_thickness",
     "FAMILY_PARAMS", "build_port", "register_family",
     "geometry_backend_available", "grain_to_step", "grain_to_stl",
-    "segment_outline", "sketch_payload",
+    "segment_outline", "segment_outlines", "sketch_payload",
 ]

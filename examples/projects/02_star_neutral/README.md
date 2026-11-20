@@ -16,7 +16,7 @@ PYTHONPATH=src python examples/run_case.py examples/projects/02_star_neutral
 ```
 
 ## 预期结果（实测）
-- 平均推力 ≈ 15075 N，工作时间 ≈ 1.56 s。
+- 平均推力 ≈ 15071 N，工作时间 ≈ 1.56 s。
 - 校核：5/8 项通过。
 
 ## 说明

@@ -60,7 +60,10 @@ def size_throat_from_pressure(p_target: float, a_b: float, rho_p: float,
 def forward_design(req: RequirementSet, grain: GrainGeometry,
                    propellant: PropellantModel, nozzle: NozzleModel | None = None,
                    ballistics_model: str | None = None,
-                   material: ElasticMaterial | None = None) -> DesignResult:
+                   material: ElasticMaterial | None = None,
+                   fast: bool = False) -> DesignResult:
+    """Run the forward chain.  ``fast`` trades sampling resolution for speed and
+    is intended for optimiser inner loops, never for reported results."""
     cfg = get_config()
     ballistics_model = ballistics_model or cfg.get("ballistics.model", "equilibrium")
 
@@ -69,11 +72,22 @@ def forward_design(req: RequirementSet, grain: GrainGeometry,
     p_design = design_chamber_pressure(req, propellant)
     thermo = evaluate_thermo(propellant, p_design, cfg.get("thermo.backend", "auto"))
 
-    from ..burnback.geometric import burn_area_at, burnback_geometric
+    from ..burnback.geometric import burn_area_at
 
     a_b0 = burn_area_at(grain, 0.0)
-    curve = burnback_geometric(grain, n_steps=120)
-    a_b_max = float(np.max(curve.burn_area)) if len(curve.burn_area) else a_b0
+    quad = 16 if fast else 64
+    method = cfg.get("burnback.method", "analytic")
+    n_steps = 48 if fast else cfg.get("burnback.n_steps", 200)
+    burnback = compute_burnback(grain, method=method, n_steps=n_steps, quad_segs=quad)
+    # The throat is sized from the same curve that later gives the propellant
+    # volume: sizing it from a differently resolved peak burning area would leave
+    # the throat inconsistent with the grain (a small throat means high pressure
+    # and a short burn time).
+    a_b_max = float(np.max(burnback.burn_area)) if len(burnback.burn_area) else a_b0
+    if not a_b_max > 0.0:
+        raise ValueError(
+            "grain has no burning surface: the port fills the cross-section, so no "
+            "throat can be sized; enlarge the web or reduce the port size")
 
     # nozzle: use the given one, else size the throat so that the *peak* burning
     # area gives the design chamber pressure (peak pressure = design pressure)
@@ -102,13 +116,12 @@ def forward_design(req: RequirementSet, grain: GrainGeometry,
         ambient_pressure=req.ambient_pressure,
         pressure_floor=cfg.get("ballistics.pressure_floor", 1e4),
     )
-    ball = solve_internal_ballistics(inputs, model=ballistics_model,
-                                     n_steps=cfg.get("ballistics.time_steps", 400))
-    burnback = compute_burnback(grain, method=cfg.get("burnback.method", "analytic"),
-                               n_steps=cfg.get("burnback.n_steps", 200))
+    ball = solve_internal_ballistics(
+        inputs, model=ballistics_model,
+        n_steps=120 if fast else cfg.get("ballistics.time_steps", 400))
 
     prop_mass = burnback.propellant_volume * propellant.density
-    body = compute_grain_body(grain, propellant.density)
+    body = compute_grain_body(grain, propellant.density, curve=burnback)
     perf = analyze_performance(
         ball, nozzle, thermo.gamma, thermo.chamber_temperature,
         thermo.molecular_weight, prop_mass, burnback.propellant_volume,

@@ -15,7 +15,7 @@ PYTHONPATH=src python examples/run_case.py examples/projects/01_tube_sounding
 ```
 
 ## 预期结果（实测）
-- 平均推力 ≈ 6404 N，工作时间 ≈ 5.22 s，总冲 ≈ 3.34e4 N·s。
+- 平均推力 ≈ 6393 N，工作时间 ≈ 5.22 s，总冲 ≈ 3.34e4 N·s。
 - 校核：5/8 项通过。
 
 ## 说明

@@ -29,6 +29,9 @@ class GrainFamily(str, Enum):
     SPHERICAL = "spherical"  # spherical cavity
     CONICAL = "conical"  # conical cavity
     MULTI_PERFORATED = "multi_perforated"  # 7-perf / 19-perf classic
+    WEDGE = "wedge"  # straight-flank wedge / sector cavities
+    AIRFOIL = "airfoil"  # NACA-thickness blade cavities
+    EMBEDDED_WIRE = "embedded_wire"  # radial metal wires, bore port
     CUSTOM_POLYGON = "custom_polygon"  # user supplied polygon port (sketch)
 
 

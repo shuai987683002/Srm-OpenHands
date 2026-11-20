@@ -16,7 +16,7 @@ PYTHONPATH=src python examples/run_case.py examples/projects/03_wagon_wheel_regr
 ```
 
 ## 预期结果（实测）
-- 平均推力 ≈ 17784 N，工作时间 ≈ 1.16 s。
+- 平均推力 ≈ 17783 N，工作时间 ≈ 1.16 s。
 - 校核：5/8 项通过（名义指标未刻意与几何对齐，见 `01` 的说明）。
 
 ## 说明

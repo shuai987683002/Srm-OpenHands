@@ -90,7 +90,12 @@ def _contour_area(dist: np.ndarray, level: float, dx: float, length: float) -> f
     infinite distances (unreached cells) are replaced by a large finite value so
     they never generate spurious contours.
     """
-    from skimage import measure
+    try:
+        from skimage import measure
+    except ImportError as exc:  # pragma: no cover - depends on the environment
+        raise ImportError(
+            "the level-set channel needs scikit-image: pip install -e '.[mesh]'"
+        ) from exc
 
     field = np.where(np.isfinite(dist), dist, 1e6)
     if level <= 0:

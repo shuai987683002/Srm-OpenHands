@@ -64,11 +64,16 @@ def recommend_families(req: RequirementSet) -> list[tuple[GrainFamily, str]]:
     if neutral:
         recs += [(GrainFamily.STAR, "star designed near neutral (progressive-regressive balance)"),
                  (GrainFamily.WAGON_WHEEL, "wagon wheel near neutral"),
+                 (GrainFamily.AIRFOIL, "airfoil blades keep A_b near neutral with low stress concentration"),
+                 (GrainFamily.WEDGE, "wedge sectors give a broad near-neutral plateau"),
                  (GrainFamily.MULTI_PERFORATED, "multi-perf near neutral")]
     if ld is not None and ld > 8:
         recs.append((GrainFamily.MULTI_PERFORATED, "large L/D suits multi-perforation"))
     if req.throat_diameter is None and ld is not None and ld < 3:
         recs.append((GrainFamily.FINOCYL, "finocyl for high loading in short grains"))
+    if progressive and req.max_chamber_pressure is not None:
+        recs.append((GrainFamily.EMBEDDED_WIRE,
+                     "embedded wires add area as the web regresses (progressive by design)"))
     # de-duplicate, keep order
     seen: set[GrainFamily] = set()
     out: list[tuple[GrainFamily, str]] = []
@@ -135,7 +140,9 @@ def synthesize_grain(req: RequirementSet, propellant: PropellantModel,
 
     def objective(x):
         geom = space.to_geometry(x)
-        curve = burnback_geometric(geom, n_steps=60)
+        # The synthesis objective only needs volume, mean area and web; a coarse
+        # sweep is ample and several times cheaper inside the optimiser loop.
+        curve = burnback_geometric(geom, n_steps=24, quad_segs=16)
         vol = curve.propellant_volume
         a_mean = float(np.mean(curve.burn_area)) if len(curve.burn_area) else 0.0
         web = curve.web_thickness

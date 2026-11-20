@@ -38,14 +38,20 @@ def _require_matplotlib():
     return plt, Poly3DCollection
 
 
-def _port_ring(segment: GrainSegment) -> np.ndarray:
-    """Port boundary as an (m, 2) array; the outer circle for a solid grain."""
+def _port_rings(segment: GrainSegment) -> list[np.ndarray]:
+    """Port boundaries as (m, 2) arrays, one per connected component."""
     from ..geometry.analysis import outer_circle, port_polygon
 
     poly = port_polygon(segment)
     if poly.is_empty:
         poly = outer_circle(segment)  # end burner: the visible surface is the OD
-    return np.asarray(poly.exterior.coords, dtype=float)
+    geoms = poly.geoms if poly.geom_type == "MultiPolygon" else [poly]
+    return [np.asarray(g.exterior.coords, dtype=float) for g in geoms]
+
+
+def _port_ring(segment: GrainSegment) -> np.ndarray:
+    """Largest port boundary as an (m, 2) array; the outer circle for a solid."""
+    return max(_port_rings(segment), key=len)
 
 
 def _side_faces(ring: np.ndarray, z0: float, z1: float) -> list[list[tuple[float, float, float]]]:
@@ -77,7 +83,8 @@ def plot_grain_3d(grain: GrainGeometry, path: str | Path) -> Path:
         )
         ax.add_collection3d(
             Poly3DCollection(
-                _side_faces(_port_ring(seg), z, z1),
+                [face for ring in _port_rings(seg)
+                 for face in _side_faces(ring, z, z1)],
                 facecolor="#f2c6a0", edgecolor="#b4743f", linewidths=0.3, alpha=0.60,
             )
         )

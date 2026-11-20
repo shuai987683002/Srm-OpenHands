@@ -14,7 +14,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 
-from shapely.geometry import Point, Polygon
+from shapely.geometry import MultiPolygon, Point, Polygon
 from shapely.ops import unary_union
 
 from ..models.grain import GrainFamily
@@ -65,6 +65,25 @@ FAMILY_PARAMS: dict[GrainFamily, dict[str, tuple[bool, str, str, float | None]]]
     GrainFamily.MULTI_PERFORATED: {
         "n_perforations": (True, "-", "number of circular perforations (7 or 19)", None),
         "perf_diameter": (True, "m", "perforation diameter", None),
+        "web_fraction": (False, "-", "minimum web between holes as a fraction of "
+                                     "the hole diameter (default 0.15)", 0.15),
+    },
+    GrainFamily.WEDGE: {
+        "n_wedges": (True, "-", "number of wedge (sector) cavities", None),
+        "inner_diameter": (True, "m", "hub bore diameter the wedges open from", None),
+        "tip_diameter": (True, "m", "diameter of the outer arc of each wedge", None),
+        "wedge_angle": (True, "deg", "full included angle of one wedge", 30.0),
+    },
+    GrainFamily.AIRFOIL: {
+        "n_blades": (True, "-", "number of airfoil blades", None),
+        "inner_diameter": (True, "m", "hub bore diameter the blades open from", None),
+        "blade_chord": (True, "m", "radial chord of one blade", None),
+        "thickness_ratio": (False, "-", "max thickness / chord (NACA t/c)", 0.12),
+    },
+    GrainFamily.EMBEDDED_WIRE: {
+        "inner_diameter": (True, "m", "central bore diameter", None),
+        "n_wires": (True, "-", "number of radial metal wires", None),
+        "wire_diameter": (True, "m", "wire diameter", None),
     },
     GrainFamily.CUSTOM_POLYGON: {},
 }
@@ -152,14 +171,23 @@ def build_star(p: dict, r_outer: float) -> Polygon:
 
 
 def _safe_polygon(poly):
+    """Repair a port outline, keeping every component.
+
+    A multi-perforated port is genuinely several disjoint voids; collapsing a
+    MultiPolygon to its largest part would delete most of the perforations and
+    quietly change the burning area.
+    """
     from shapely.validation import make_valid
 
     if poly is None or poly.is_empty:
         return Polygon()
     if not poly.is_valid:
         poly = make_valid(poly)
-    if poly.geom_type == "MultiPolygon":
-        poly = max(poly.geoms, key=lambda g: g.area)
+    if poly.geom_type == "GeometryCollection":
+        polys = [g for g in poly.geoms if g.geom_type == "Polygon" and not g.is_empty]
+        if not polys:
+            return Polygon()
+        poly = polys[0] if len(polys) == 1 else MultiPolygon(polys)
     return poly
 
 
@@ -176,7 +204,11 @@ def build_wagon_wheel(p: dict, r_outer: float) -> Polygon:
     r_hub = p["inner_diameter"] / 2.0
     w = p["spoke_width"]
     r_bulb = w / 2.0
-    pitch = min(r_hub + p["spoke_length"], max(r_hub, r_outer - r_bulb))
+    # The bulbs must stop short of the outer surface: clamping them to
+    # ``r_outer - r_bulb`` puts the port exactly on the case wall, which leaves a
+    # zero web and a degenerate burn-back.  Keep a tenth of the radius as web.
+    r_limit = r_outer - r_bulb - 0.1 * r_outer
+    pitch = min(r_hub + p["spoke_length"], max(r_hub, r_limit))
     w_ch = 0.35 * w
     parts: list[Polygon] = [_circle(r_hub)]
     for k in range(n):
@@ -248,30 +280,143 @@ def build_conical(p: dict, r_outer: float) -> Polygon:
 
 
 def build_multi_perforated(p: dict, r_outer: float) -> Polygon:
+    """Centre hole plus rings of equal holes, separated by a real web.
+
+    The holes must not touch: a ring radius of exactly ``2*rp`` puts the centre
+    hole tangent to all six ring holes and each ring hole tangent to its
+    neighbours. The web is then zero, the port merges into one blob within the
+    first millimetre of burn, and the burning perimeter *drops* instead of
+    growing. ``web_fraction`` sets the minimum web as a fraction of the hole
+    diameter (default 0.15), so the ring pitch is ``2*rp*(1+web_fraction)``.
+    """
     n = int(round(p["n_perforations"]))
     rp = p["perf_diameter"] / 2.0
+    web = max(float(p.get("web_fraction", 0.15)), 0.0)
+    pitch = 2.0 * rp * (1.0 + web)
     parts: list[Polygon] = [Point(0.0, 0.0).buffer(rp, quad_segs=64)]
-    # ring radius: keep perforations inside the grain
     if n <= 1:
-        return unary_union(parts)
-    if n == 7:
-        ring = 2.0 * rp
-        k_ring = 6
-    elif n == 19:
-        ring = 2.0 * rp
-        k_ring = 6
-    else:
-        k_ring = n - 1
-        ring = 2.0 * rp
-    for k in range(k_ring):
-        theta = 2 * math.pi * k / k_ring
-        parts.append(Point(ring * math.cos(theta), ring * math.sin(theta)).buffer(rp, quad_segs=64))
+        return unary_union(parts).intersection(_circle(r_outer))
     if n == 19:
-        ring2 = 4.0 * rp
-        for k in range(12):
-            theta = 2 * math.pi * k / 12 + math.pi / 12
-            parts.append(Point(ring2 * math.cos(theta), ring2 * math.sin(theta)).buffer(rp, quad_segs=64))
+        rings = ((6, pitch), (12, 2.0 * pitch))
+    else:
+        rings = ((n - 1, pitch),)
+    for k_ring, ring in rings:
+        for k in range(k_ring):
+            theta = 2 * math.pi * k / k_ring
+            parts.append(Point(ring * math.cos(theta),
+                               ring * math.sin(theta)).buffer(rp, quad_segs=64))
     return unary_union(parts).intersection(_circle(r_outer))
+
+
+def build_wedge(p: dict, r_outer: float) -> Polygon:
+    """Wedge (sector) port: N constant-angle cavities with radial straight flanks.
+
+    Each cavity is a sector of full included angle ``wedge_angle`` running from
+    the hub circle to an outer *arc* at ``tip_diameter``.  Constant angular width
+    keeps the flanks radial, which is what separates a wedge from a star (sharp
+    tips), a slotted grain (parallel-sided slots) and a finocyl (tapering fins
+    with flat ends).  The outer end is an arc rather than a flat tip, so the
+    cavity stays rounded where it approaches the case wall.
+    """
+    n = int(round(p["n_wedges"]))
+    r_hub = p["inner_diameter"] / 2.0
+    r_tip = min(p["tip_diameter"] / 2.0, r_outer)
+    half = math.radians(p["wedge_angle"]) / 2.0
+
+    parts: list[Polygon] = [_circle(r_hub)]
+    if n <= 0 or r_tip <= r_hub or half <= 0.0:
+        return _safe_polygon(_circle(r_hub))
+    # keep neighbouring wedges from overlapping: the full angle cannot exceed the
+    # pitch, or the cavities merge into an annulus
+    half = min(half, 0.5 * math.pi / n)
+
+    n_arc = max(int(12 * half / math.pi * 2), 6)
+    for k in range(n):
+        theta = 2 * math.pi * k / n
+        pts: list[tuple[float, float]] = []
+        for j in range(n_arc + 1):  # hub arc, increasing angle
+            a = theta - half + 2.0 * half * j / n_arc
+            pts.append((r_hub * math.cos(a), r_hub * math.sin(a)))
+        for j in range(n_arc + 1):  # outer arc, decreasing angle
+            a = theta + half - 2.0 * half * j / n_arc
+            pts.append((r_tip * math.cos(a), r_tip * math.sin(a)))
+        parts.append(Polygon(pts))
+
+    port = unary_union(parts).intersection(_circle(r_outer))
+    return _safe_polygon(port)
+
+
+def _naca_half_thickness(x: float, thickness_ratio: float) -> float:
+    """NACA 4-digit symmetric half-thickness (closed trailing edge)."""
+    return 5.0 * thickness_ratio * (
+        0.2969 * math.sqrt(max(x, 0.0))
+        - 0.1260 * x
+        - 0.3516 * x**2
+        + 0.2843 * x**3
+        - 0.1036 * x**4
+    )
+
+
+def build_airfoil(p: dict, r_outer: float) -> Polygon:
+    """Airfoil (blade) port: N symmetric NACA 4-digit profiles on a hub bore.
+
+    Each blade lies along a radius: chord along the radial direction, thickness
+    in the tangential direction, maximum thickness ``thickness_ratio * chord``.
+    The smooth thickness distribution avoids the sharp concave corners of a star
+    or slot, which is the reason airfoil ports are chosen where stress
+    concentration in the grain or case bond matters.
+    """
+    n = int(round(p["n_blades"]))
+    r_hub = p["inner_diameter"] / 2.0
+    chord = p["blade_chord"]
+    ratio = p["thickness_ratio"]
+    r_tip = min(r_hub + chord, r_outer)
+    chord = max(r_tip - r_hub, 0.0)
+
+    parts: list[Polygon] = [_circle(r_hub)]
+    if n <= 0 or chord <= 0.0 or ratio <= 0.0:
+        return _safe_polygon(_circle(r_hub))
+
+    # The blade root is buried inside the hub bore.  A root that merely touched
+    # the hub circle would meet it at a single point, and the union of the parts
+    # would then be a *disconnected* MultiPolygon -- which the safety net reduces
+    # to one component, silently dropping every blade but the first.
+    r_root = max(r_hub - 0.25 * chord, 0.0)
+    span = r_tip - r_root
+    n_pts = 40
+    xs = [0.5 * (1.0 - math.cos(math.pi * i / n_pts)) for i in range(n_pts + 1)]
+    for k in range(n):
+        theta = 2 * math.pi * k / n
+        ca, sa = math.cos(theta), math.sin(theta)
+        upper: list[tuple[float, float]] = []
+        lower: list[tuple[float, float]] = []
+        for x in xs:
+            r = r_root + x * span
+            y = _naca_half_thickness(x, ratio) * span
+            upper.append((r, y))
+            lower.append((r, -y))
+        # close the trailing edge so the polygon has no zero-width seam
+        outline = upper + lower[::-1][1:]
+        # local (radial, tangential) -> global
+        rot = [(rr * ca - tt * sa, rr * sa + tt * ca) for rr, tt in outline]
+        parts.append(Polygon(rot))
+
+    port = unary_union(parts).intersection(_circle(r_outer))
+    return _safe_polygon(port)
+
+
+def build_embedded_wire(p: dict, r_outer: float) -> Polygon:
+    """Port for a wire-reinforced grain: the bore only.
+
+    The radial metal wires are *not* voids -- they stay in place while the
+    propellant recedes, so they are not part of the port polygon.  Their
+    contribution to the burning area is added analytically in
+    :func:`srm_open.geometry.analysis.burning_area` (a protruding wire exposes
+    its cylindrical side, ``2*pi*r_w*e`` per wire, which is what makes the
+    thrust progressive).
+    """
+    d = p.get("inner_diameter", 0.0)
+    return _circle(d / 2.0) if d > 0.0 else Polygon()
 
 
 def build_custom_polygon(p: dict, r_outer: float, polygon: list[tuple[float, float]] | None = None) -> Polygon:
@@ -294,6 +439,9 @@ _BUILDERS: dict[GrainFamily, Callable] = {
     GrainFamily.SPHERICAL: build_spherical,
     GrainFamily.CONICAL: build_conical,
     GrainFamily.MULTI_PERFORATED: build_multi_perforated,
+    GrainFamily.WEDGE: build_wedge,
+    GrainFamily.AIRFOIL: build_airfoil,
+    GrainFamily.EMBEDDED_WIRE: build_embedded_wire,
     GrainFamily.CUSTOM_POLYGON: build_custom_polygon,
 }
 

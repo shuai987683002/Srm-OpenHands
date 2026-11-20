@@ -123,7 +123,9 @@ def default_design_space(family: GrainFamily, outer_diameter: float,
         ]
     elif family == GrainFamily.WAGON_WHEEL:
         params = [
-            Parameter("inner_diameter", 0.05 * outer_diameter, 0.5 * outer_diameter),
+            # The hub bore is the web-defining coordinate here, so its range must
+            # reach far enough towards the outer radius for short burn times.
+            Parameter("inner_diameter", 0.05 * outer_diameter, 0.6 * outer_diameter),
             Parameter("spoke_width", 0.02 * outer_diameter, 0.3 * outer_diameter),
             Parameter("spoke_length", 0.05 * outer_diameter, 0.9 * r),
             Parameter("n_spokes", 3.0, 12.0, integer=True),
@@ -147,7 +149,11 @@ def default_design_space(family: GrainFamily, outer_diameter: float,
         ]
     elif family == GrainFamily.MULTI_PERFORATED:
         params = [
-            Parameter("perf_diameter", 0.01 * outer_diameter, 0.15 * outer_diameter),
+            # A seven-perforation port spans three perforation radii from the
+            # axis, so the holes still leave a web at a diameter near a quarter
+            # of the outer diameter; the cap has to allow that much or the burn
+            # time cannot be shortened.
+            Parameter("perf_diameter", 0.01 * outer_diameter, 0.28 * outer_diameter),
             Parameter("n_perforations", 7.0, 7.0, integer=True),
             L,
         ]
@@ -157,6 +163,34 @@ def default_design_space(family: GrainFamily, outer_diameter: float,
         params = [
             Parameter("base_diameter", 0.05 * outer_diameter, 0.98 * outer_diameter),
             Parameter("apex_diameter", 0.0, 0.5 * outer_diameter),
+            L,
+        ]
+    elif family == GrainFamily.WEDGE:
+        params = [
+            Parameter("inner_diameter", 0.05 * outer_diameter, 0.6 * outer_diameter),
+            Parameter("tip_diameter", 0.2 * outer_diameter, 0.98 * outer_diameter),
+            # above 360/n the wedges would merge into an annulus; the builder
+            # clamps there, so the bound keeps the optimiser in the realisable range
+            Parameter("wedge_angle", 4.0, 40.0),
+            Parameter("n_wedges", 3.0, 12.0, integer=True),
+            L,
+        ]
+    elif family == GrainFamily.AIRFOIL:
+        params = [
+            Parameter("inner_diameter", 0.05 * outer_diameter, 0.6 * outer_diameter),
+            Parameter("blade_chord", 0.05 * outer_diameter, 0.9 * r),
+            Parameter("thickness_ratio", 0.04, 0.30),
+            Parameter("n_blades", 3.0, 12.0, integer=True),
+            L,
+        ]
+    elif family == GrainFamily.EMBEDDED_WIRE:
+        params = [
+            Parameter("inner_diameter", 0.05 * outer_diameter, 0.7 * outer_diameter),
+            # wire diameter changes the *slope* of A_b(e), not its level, so the
+            # optimiser can trade it against the bore to hold thrust and still
+            # reshape the thrust curve -- keep a wide range for that reason
+            Parameter("wire_diameter", 0.2e-3, 4.0e-3),
+            Parameter("n_wires", 4.0, 16.0, integer=True),
             L,
         ]
     else:
@@ -406,20 +440,32 @@ def _angular_signature(poly) -> tuple[int, float, np.ndarray]:
     n = 720
     theta = np.linspace(0.0, 2.0 * math.pi, n, endpoint=False)
     c = poly.centroid
-    boundary = poly.exterior
     from shapely.geometry import LineString
+
+    boundaries = ([g.exterior for g in poly.geoms] if poly.geom_type == "MultiPolygon"
+                  else [poly.exterior])
+    reach = 10.0 * max(poly.bounds[2] - poly.bounds[0],
+                       poly.bounds[3] - poly.bounds[1], 1e-9)
+
+    def _points(geom):
+        if geom.is_empty:
+            return []
+        if geom.geom_type == "Point":
+            return [geom]
+        if geom.geom_type in ("LineString", "LinearRing"):
+            # a radial flank of a wedge or slot can be *collinear* with the ray,
+            # so the intersection is a segment, not a point: take its far end
+            return [geom.interpolate(1.0, normalized=True)]
+        if hasattr(geom, "geoms"):
+            return [p for g in geom.geoms for p in _points(g)]
+        return []
 
     r = np.empty(n)
     for i, th in enumerate(theta):
         ray = LineString([(c.x, c.y),
-                          (c.x + 10.0 * math.cos(th), c.y + 10.0 * math.sin(th))])
-        hit = boundary.intersection(ray)
-        if hit.is_empty:
-            r[i] = 0.0
-            continue
-        pts = list(hit.geoms) if hasattr(hit, "geoms") else [hit]
-        # outermost intersection along the ray
-        r[i] = max(math.hypot(p.x - c.x, p.y - c.y) for p in pts)
+                          (c.x + reach * math.cos(th), c.y + reach * math.sin(th))])
+        pts = [p for b in boundaries for p in _points(b.intersection(ray))]
+        r[i] = (max(math.hypot(p.x - c.x, p.y - c.y) for p in pts) if pts else 0.0)
     spec = np.abs(np.fft.rfft(r - r.mean()))
     if spec.size <= 2:
         return 0, 0.0, r
@@ -463,7 +509,8 @@ def fit_outline(points: list[tuple[float, float]], family: GrainFamily,
     t_area = float(target.area)
     t_perim = float(target.length)
     c = target.centroid
-    coords = np.asarray(target.exterior.coords)
+    parts = target.geoms if target.geom_type == "MultiPolygon" else [target]
+    coords = np.vstack([np.asarray(g.exterior.coords) for g in parts])
     t_rm2 = float(np.mean((coords[:, 0] - c.x) ** 2 + (coords[:, 1] - c.y) ** 2))
 
     space = default_design_space(family, outer_diameter, (length, length))
@@ -474,7 +521,8 @@ def fit_outline(points: list[tuple[float, float]], family: GrainFamily,
         if poly.is_empty:
             return None
         cc = poly.centroid
-        pc = np.asarray(poly.exterior.coords)
+        gs = poly.geoms if poly.geom_type == "MultiPolygon" else [poly]
+        pc = np.vstack([np.asarray(g.exterior.coords) for g in gs])
         rm2 = float(np.mean((pc[:, 0] - cc.x) ** 2 + (pc[:, 1] - cc.y) ** 2))
         return float(poly.area), float(poly.length), rm2
 
@@ -562,9 +610,11 @@ def fit_outline(points: list[tuple[float, float]], family: GrainFamily,
 # ---------------------------------------------------------------------------
 def inverse_design(req: RequirementSet, propellant: PropellantModel,
                    space: GrainDesignSpace, x0: np.ndarray | None = None,
-                   method: str = "cma", max_iter: int = 300,
+                   method: str = "cma", max_iter: int = 25,
                    weights: dict[str, float] | None = None,
-                   ballistics_model: str = "equilibrium") -> DesignResult:
+                   ballistics_model: str = "equilibrium",
+                   polish: bool = True,
+                   polish_max_iter: int = 60) -> DesignResult:
     """Recover a grain + nozzle that meets the ballistic requirements.
 
     The objective is the weighted relative error of the achieved performance
@@ -581,12 +631,7 @@ def inverse_design(req: RequirementSet, propellant: PropellantModel,
 
     x0 = x0 if x0 is not None else np.array([0.5 * (p.low + p.high) for p in space.parameters])
 
-    def objective(x):
-        geom = space.to_geometry(x)
-        try:
-            result = forward_design(req, geom, propellant, ballistics_model=ballistics_model)
-        except Exception:
-            return 1e6
+    def residual(result) -> float:
         perf = result.performance
         if perf is None or perf.total_impulse <= 0:
             return 1e6
@@ -611,14 +656,58 @@ def inverse_design(req: RequirementSet, propellant: PropellantModel,
                 n += w_p
         return err / max(n, 1e-9)
 
+    def objective(x):
+        # The optimiser only compares candidates, so the cheap screening model is
+        # enough; whatever it returns is re-evaluated at full resolution below.
+        try:
+            return residual(forward_design(req, space.to_geometry(x), propellant,
+                                           ballistics_model=ballistics_model, fast=True))
+        except Exception:
+            return 1e6
+
+    def full_objective(x):
+        # Candidate *selection* has to run at full resolution.  The screening
+        # model smooths over features that only appear at fine sampling -- on a
+        # multi-perforated grain the burn-area step at hole merge is straddled,
+        # so a polished design that reads 5000 N / 3.00 s on the full model
+        # scores worse than an unpolished one on the coarse model and would be
+        # discarded.  Only the population search may use the cheap model.
+        try:
+            return residual(forward_design(req, space.to_geometry(x), propellant,
+                                           ballistics_model=ballistics_model, fast=False))
+        except Exception:
+            return 1e6
+
     res = minimize(objective, x0, bounds=space.bounds(), method=method, max_iter=max_iter)
-    geom = space.to_geometry(res.x)
-    result = forward_design(req, geom, propellant, ballistics_model=ballistics_model)
+    x_best = res.x
+    achieved = full_objective(x_best)
+
+    # The global search only has to land in the right basin: its population cost
+    # grows steeply with the parameter count, so a coarse pass followed by the
+    # same coordinate-wise polish the forward design uses is far cheaper than
+    # driving the population to a tight tolerance.  Both candidates are scored
+    # with this module's weighted residual, not with the polish's own metric.
+    if polish and achieved > 1e-6:
+        from ..api.facade import _refine_synthesis
+
+        geom = space.to_geometry(x_best)
+        polished, _ = _refine_synthesis(
+            req, propellant, geom.segments[0].family, geom, polish_max_iter)
+        seg = polished.segments[0]
+        x_pol = np.asarray(space.to_vector(seg.params, seg.length))
+        achieved_pol = full_objective(x_pol)
+        if achieved_pol < achieved:
+            x_best, achieved = x_pol, achieved_pol
+
+    result = forward_design(req, space.to_geometry(x_best), propellant,
+                            ballistics_model=ballistics_model)
+    # The check must describe the reported design, so score the full-resolution
+    # result rather than the screening one the optimiser saw.
+    achieved = residual(result)
     result.mode = "inverse"
     # Judge convergence by the *achieved* residual, not the optimiser's internal
     # `success` flag (Nelder-Mead sets it False on simplex shrink even when the
     # physical targets are met).
-    achieved = float(objective(res.x))
     result.verification.checks.append({
         "name": "inverse_convergence", "passed": achieved < 1e-3,
         "value": achieved, "tol": 1e-3,

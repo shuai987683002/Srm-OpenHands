@@ -24,7 +24,21 @@
 .
 [V6] equilibrium p_c: 2.3176 MPa vs closed form 2.3176 MPa
 .
-[V6] mass-balance residual: max=8.84e-16
+[V6] mass-balance residual: max=9.11e-16
+.
+[V7] star: objective=1.77e-23 lobes=6/6
+.
+[V7] slotted: objective=5.71e-21 lobes=6/6
+.
+[V7] finocyl: objective=2.13e-22 lobes=6/6
+.
+[V7] wagon_wheel: objective=1.60e-23 lobes=6/6
+.
+[V8] tube: cond=12.71 vif=[1.0001, 1.0001]
+
+[V8] star: cond=159.2 frozen=['n_points'] verdicts={'inner_diameter': 'confounded: trades off against another parameter', 'point_diameter': 'identifiable', 'point_half_angle': 'inactive: no effect at this operating point', 'length': 'confounded: trades off against another parameter'}
+.
+[V9] same-seed identical=True, std(tight)=15 std(loose)=616
 .
 ==================================== PASSES ====================================
 =========================== short test summary info ============================
@@ -42,3 +56,9 @@ PASSED tests/verification/test_verification.py::test_v5_fem_no_volumetric_lockin
 PASSED tests/verification/test_verification.py::test_v5_lame_radial_boundary_conditions
 PASSED tests/verification/test_verification.py::test_v6_equilibrium_pressure_closed_form
 PASSED tests/verification/test_verification.py::test_v6_burn_area_over_throat_and_mass_balance
+PASSED tests/verification/test_verification.py::test_v7_outline_roundtrip[star-params0-n_points]
+PASSED tests/verification/test_verification.py::test_v7_outline_roundtrip[slotted-params1-n_slots]
+PASSED tests/verification/test_verification.py::test_v7_outline_roundtrip[finocyl-params2-n_fins]
+PASSED tests/verification/test_verification.py::test_v7_outline_roundtrip[wagon_wheel-params3-n_spokes]
+PASSED tests/verification/test_verification.py::test_v8_identifiability_matches_recovery
+PASSED tests/verification/test_verification.py::test_v9_monte_carlo_reproducible_and_monotone

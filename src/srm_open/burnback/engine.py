@@ -17,7 +17,8 @@ from .levelset import levelset_grain_burnback
 
 
 def compute_burnback(grain: GrainGeometry, method: str = "analytic",
-                     n_steps: int = 200, nx: int = 240, ny: int = 240) -> BurnbackResult:
+                     n_steps: int = 200, nx: int = 240, ny: int = 240,
+                     quad_segs: int = 64) -> BurnbackResult:
     """Return a :class:`BurnbackResult` for the requested method."""
     if method == "levelset":
         res = levelset_grain_burnback(grain, n_snapshots=n_steps, nx=nx, ny=ny)
@@ -28,7 +29,7 @@ def compute_burnback(grain: GrainGeometry, method: str = "analytic",
             web_thickness=float(res.burn_distance[-1]),
             notes="; ".join(res.notes),
         )
-    curve = burnback_geometric(grain, n_steps=n_steps)
+    curve = burnback_geometric(grain, n_steps=n_steps, quad_segs=quad_segs)
     return BurnbackResult(
         method="analytic",
         burn_distance=list(curve.burn_distance),

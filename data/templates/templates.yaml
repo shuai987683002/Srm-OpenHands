@@ -3,7 +3,8 @@
 # Each template is a complete GrainGeometry (see srm_open.models.grain).
 # `outer_diameter` and `length` are placeholders: scale them to your motor.
 # Families: cylindrical, tube, tube_inhibited, star, wagon_wheel, slotted,
-# finocyl, spherical, conical, multi_perforated, custom_polygon
+# finocyl, spherical, conical, multi_perforated, wedge, airfoil, embedded_wire,
+# custom_polygon
 
 templates:
   tube_simple:
@@ -130,3 +131,33 @@ templates:
         outer_diameter: 0.16
         burn_mode: internal
         params: {n_points: 6, inner_diameter: 0.04, point_diameter: 0.12, point_half_angle: 30}
+
+  wedge_6:
+    name: "6-sector wedge port (near-neutral plateau)"
+    family: wedge
+    segments:
+      - family: wedge
+        length: 0.5
+        outer_diameter: 0.18
+        burn_mode: internal
+        params: {n_wedges: 6, inner_diameter: 0.04, tip_diameter: 0.14, wedge_angle: 22}
+
+  airfoil_6:
+    name: "6-blade airfoil port (low stress concentration)"
+    family: airfoil
+    segments:
+      - family: airfoil
+        length: 0.5
+        outer_diameter: 0.18
+        burn_mode: internal
+        params: {n_blades: 6, inner_diameter: 0.04, blade_chord: 0.06, thickness_ratio: 0.15}
+
+  embedded_wire_8:
+    name: "Tube grain with 8 radial steel wires (progressive)"
+    family: embedded_wire
+    segments:
+      - family: embedded_wire
+        length: 0.5
+        outer_diameter: 0.18
+        burn_mode: internal
+        params: {inner_diameter: 0.06, n_wires: 8, wire_diameter: 0.001}
