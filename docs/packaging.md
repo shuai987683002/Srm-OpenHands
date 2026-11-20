@@ -35,6 +35,14 @@
 - **入口脚本**：`packaging/srm_entry.py` 用绝对导入调用 `srm_open.api.cli:main`。
   直接以 `srm_open/api/cli.py` 为入口会因相对导入失败
   （`attempted relative import with no known parent package`）。
+- **双击启动**：exe 保留控制台（`console=True`），因为主用法仍是命令行。为让
+  双击可用，`main()` 在**无参数**时直接启动 Web UI 并打开浏览器，而不是抛
+  `error: the following arguments are required: command` 后退出 2——在资源管理器里
+  那看起来就是窗口一闪而过。`serve` 遇到端口占用会自动向后试 20 个端口，避免
+  第二个实例静默失败。
+- **崩溃可见性**：`main()` 在 frozen 模式下捕获未处理异常，打印 traceback、写入
+  `srm-error.log`（exe 目录 → 当前目录 → `%LOCALAPPDATA%\srm-open` → 临时目录，
+  逐级回退以兼容 Program Files 只读场景），并等待回车再退出。
 - **数据路径**：`config.repo_root()` 优先识别 `sys.frozen` / `sys._MEIPASS`，
   再回退到 `pyproject.toml` 搜索与当前目录，保证打包后仍能找到 `data/`、`configs/`。
 - **体积**：spec 中排除 tkinter/PyQt 与可选重型依赖；去掉 `skimage` 后由 395 MB 降至 166 MB。

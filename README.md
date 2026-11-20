@@ -71,9 +71,16 @@ PYTHONPATH=src python examples/run_case.py examples/projects/06_synthesis_star
 `srm.exe`（约 80 MB，无需运行时）：
 
 ```powershell
+.\srm.exe                                # 双击等价：启动 Web UI 并自动打开浏览器
 .\srm.exe design --thrust 4000 --burn-time 2.5
-.\srm.exe serve          # 浏览器 UI：http://127.0.0.1:8000/ui/
+.\srm.exe serve --port 8080              # 指定端口；被占用时自动顺延
 ```
+
+**双击 `srm.exe` 即可**：无参数启动会拉起本地 Web UI 并打开默认浏览器，不需要
+命令行。若 8000 端口被占用，会自动向后寻找可用端口并在窗口里打印实际地址。
+
+程序崩溃时窗口不会立刻消失：traceback 会打印出来并写入 `srm-error.log`
+（优先 exe 所在目录，只读时回退到 `%LOCALAPPDATA%\srm-open\`），按回车才退出。
 
 该二进制已内置数据库与前端资源，可脱离源码树运行。每个 Release 附
 `SHA256SUMS`，校验：`certutil -hashfile srm.exe SHA256`。

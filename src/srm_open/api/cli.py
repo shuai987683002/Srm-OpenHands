@@ -21,7 +21,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import socket
 import sys
+import tempfile
 from pathlib import Path
 
 from ..geometry.sketch import (
@@ -140,6 +143,16 @@ def cmd_inverse(args) -> int:
     return _emit(result, args)
 
 
+def _port_is_free(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind((host, port))
+        except OSError:
+            return False
+        return True
+
+
 def cmd_serve(args) -> int:
     try:
         import uvicorn
@@ -153,8 +166,41 @@ def cmd_serve(args) -> int:
     if not frontend_available():
         print("front end assets not found in this build", file=sys.stderr)
         return 2
-    print(f"Srm-Open web UI on http://{args.host}:{args.port}/ui/  (Ctrl-C to stop)")
-    uvicorn.run("srm_open.api.rest:app", host=args.host, port=args.port,
+
+    # Double-clicking the exe lands here with the default port, and a second
+    # instance (or anything else on 8000) would otherwise die with an opaque
+    # "address already in use" traceback. Walk forward instead.
+    port = args.port
+    if not _port_is_free(args.host, port):
+        for candidate in range(port + 1, port + 21):
+            if _port_is_free(args.host, candidate):
+                print(f"port {port} is busy, using {candidate}", file=sys.stderr)
+                port = candidate
+                break
+        else:
+            print(f"ports {port}-{port + 20} are all busy; pass --port", file=sys.stderr)
+            return 2
+
+    url = f"http://{args.host}:{port}/ui/"
+    print(f"Srm-Open web UI on {url}  (Ctrl-C to stop)")
+    sys.stdout.flush()
+
+    if args.open_browser:
+        # Only after the server is up, or the browser shows a connection error.
+        import threading
+        import time
+        import webbrowser
+
+        def _open() -> None:
+            time.sleep(1.5)
+            try:
+                webbrowser.open(url)
+            except Exception:
+                pass  # a headless box has no browser; the URL is already printed
+
+        threading.Thread(target=_open, daemon=True).start()
+
+    uvicorn.run("srm_open.api.rest:app", host=args.host, port=port,
                 log_level=args.log_level)
     return 0
 
@@ -364,6 +410,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--port", type=int, default=8000)
     sp.add_argument("--log-level", default="info",
                     choices=["critical", "error", "warning", "info", "debug"])
+    sp.add_argument("--open-browser", action=argparse.BooleanOptionalAction,
+                    default=False,
+                    help="open the UI in the default browser once it is listening")
     sp.set_defaults(func=cmd_serve)
 
     sp = sub.add_parser("thermo", help="evaluate propellant thermochemistry")
@@ -437,10 +486,107 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _launch_default() -> int:
+    """What a double-clicked exe should do: start the web UI and open a browser.
+
+    With no arguments the CLI used to exit 2 with "the following arguments are
+    required: command", which from Explorer looks like the window flashing and
+    closing. A desktop user has no console to read that in.
+    """
+    try:
+        import uvicorn  # noqa: F401  (cmd_serve imports it again)
+
+        from ..api.rest import frontend_available
+    except ImportError:
+        # Core install without the 'api' extra: no GUI to fall back to.
+        build_parser().print_help()
+        return 2
+
+    if not frontend_available():
+        build_parser().print_help()
+        return 2
+
+    return cmd_serve(argparse.Namespace(host="127.0.0.1", port=8000,
+                                        log_level="warning", open_browser=True))
+
+
+def _pause_if_interactive() -> None:
+    """Hold a double-clicked window open so its message can be read."""
+    if not getattr(sys, "frozen", False):
+        return
+    try:
+        if sys.stdin is None or not sys.stdin.isatty():
+            return
+        input("\n按回车键退出 ...")
+    except (EOFError, KeyboardInterrupt):
+        pass
+
+
+def _crash_log_path() -> Path:
+    """Prefer the exe's folder, but fall back when it is read-only.
+
+    An exe under Program Files cannot write next to itself, and silently losing
+    the log defeats the purpose of writing one.
+    """
+    candidates = []
+    try:
+        candidates.append(Path(sys.executable).parent / "srm-error.log")
+    except Exception:  # pragma: no cover - exotic embedders
+        pass
+    candidates.append(Path.cwd() / "srm-error.log")
+    local = os.environ.get("LOCALAPPDATA") or os.environ.get("XDG_STATE_HOME")
+    if local:
+        candidates.append(Path(local) / "srm-open" / "srm-error.log")
+    candidates.append(Path(tempfile.gettempdir()) / "srm-error.log")
+
+    for path in candidates:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a", encoding="utf-8"):
+                return path
+        except OSError:
+            continue
+    return candidates[-1]
+
+
+def _report_crash(exc: BaseException) -> None:
+    """Keep a double-clicked window readable instead of vanishing.
+
+    Explorer closes the console the instant the process exits, so an unhandled
+    traceback is invisible.
+    """
+    import traceback
+
+    traceback.print_exception(type(exc), exc, exc.__traceback__)
+    log = _crash_log_path()
+    try:
+        with open(log, "a", encoding="utf-8") as fh:
+            fh.write("".join(traceback.format_exception(
+                type(exc), exc, exc.__traceback__)))
+        print(f"\n详细错误已写入 {log}", file=sys.stderr)
+    except OSError:
+        pass
+    _pause_if_interactive()
+
+
 def main(argv: list[str] | None = None) -> int:
+    # Checked before parsing: argparse would print "the following arguments are
+    # required: command" to stderr first, and a desktop user who double-clicked
+    # the exe would see that error flash before the browser opened.
+    if not (sys.argv[1:] if argv is None else argv):
+        return _launch_default()
+
     parser = build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except KeyboardInterrupt:
+        return 130
+    except Exception as exc:  # noqa: BLE001 - last resort for a frozen exe
+        if getattr(sys, "frozen", False):
+            _report_crash(exc)
+            return 1
+        raise
 
 
 if __name__ == "__main__":  # pragma: no cover
