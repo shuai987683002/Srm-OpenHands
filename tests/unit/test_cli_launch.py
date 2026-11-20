@@ -24,7 +24,6 @@ def test_launch_default_starts_the_web_ui(monkeypatch):
         return 0
 
     monkeypatch.setattr(cli, "cmd_serve", fake_serve)
-    monkeypatch.setattr("srm_open.api.rest.frontend_available", lambda: True)
 
     assert cli._launch_default() == 0
     assert seen["args"].open_browser is True
@@ -32,11 +31,24 @@ def test_launch_default_starts_the_web_ui(monkeypatch):
     assert seen["args"].port == 8000
 
 
-def test_launch_default_prints_help_when_the_gui_is_missing(monkeypatch, capsys):
-    monkeypatch.setattr("srm_open.api.rest.frontend_available", lambda: False)
+def test_serve_without_the_api_extra_explains_itself(monkeypatch, capsys):
+    """The 3.11+ test matrix installs [dev,viz], not [dev,api]."""
+    import builtins
 
-    assert cli._launch_default() == 2
-    assert "usage: srm" in capsys.readouterr().out
+    real_import = builtins.__import__
+
+    def fake_import(name, *a, **kw):
+        if name == "uvicorn":
+            raise ImportError("no uvicorn")
+        return real_import(name, *a, **kw)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    monkeypatch.delattr(sys, "frozen", raising=False)
+
+    assert cli.cmd_serve(argparse.Namespace(
+        host="127.0.0.1", port=8000, log_level="warning",
+        open_browser=False)) == 2
+    assert "pip install -e '.[api]'" in capsys.readouterr().err
 
 
 def test_main_with_no_arguments_uses_the_launch_default(monkeypatch):
@@ -70,16 +82,33 @@ def test_port_probe_detects_a_busy_port():
     assert cli._port_is_free("127.0.0.1", port) is True
 
 
-def test_serve_walks_forward_when_the_port_is_taken(monkeypatch):
+@pytest.fixture
+def fake_web(monkeypatch):
+    """Stub the web stack so these tests run without the ``api`` extra.
+
+    cmd_serve imports both lazily at call time, so modules in sys.modules are
+    enough; the real ones are never imported.
+    """
+    import types
+
+    uvicorn = types.ModuleType("uvicorn")
+    uvicorn.run = lambda *a, **kw: None
+    rest = types.ModuleType("srm_open.api.rest")
+    rest.frontend_available = lambda: True
+    monkeypatch.setitem(sys.modules, "uvicorn", uvicorn)
+    monkeypatch.setitem(sys.modules, "srm_open.api.rest", rest)
+    return uvicorn
+
+
+def test_serve_walks_forward_when_the_port_is_taken(monkeypatch, fake_web):
     monkeypatch.setattr(cli, "_port_is_free", lambda host, port: port != 8000)
-    monkeypatch.setattr("srm_open.api.rest.frontend_available", lambda: True)
 
     seen = {}
 
     def fake_run(*args, **kwargs):
         seen.update(kwargs)
 
-    monkeypatch.setattr("uvicorn.run", fake_run)
+    monkeypatch.setattr(fake_web, "run", fake_run)
 
     assert cli.cmd_serve(argparse.Namespace(
         host="127.0.0.1", port=8000, log_level="warning",
@@ -87,9 +116,9 @@ def test_serve_walks_forward_when_the_port_is_taken(monkeypatch):
     assert seen["port"] == 8001
 
 
-def test_serve_gives_up_when_the_whole_range_is_taken(monkeypatch, capsys):
+def test_serve_gives_up_when_the_whole_range_is_taken(monkeypatch, capsys,
+                                                      fake_web):
     monkeypatch.setattr(cli, "_port_is_free", lambda host, port: False)
-    monkeypatch.setattr("srm_open.api.rest.frontend_available", lambda: True)
 
     assert cli.cmd_serve(argparse.Namespace(
         host="127.0.0.1", port=8000, log_level="warning",

@@ -155,8 +155,13 @@ def _port_is_free(host: str, port: int) -> bool:
 
 def cmd_serve(args) -> int:
     try:
-        import uvicorn
+        import uvicorn  # noqa: F401
     except ImportError:
+        if getattr(sys, "frozen", False):
+            print("this build was packaged without the web UI; use the CLI "
+                  "subcommands (srm --help)", file=sys.stderr)
+            _pause_if_interactive()
+            return 2
         print("the web UI needs the optional extra: pip install -e '.[api]'",
               file=sys.stderr)
         return 2
@@ -165,6 +170,7 @@ def cmd_serve(args) -> int:
 
     if not frontend_available():
         print("front end assets not found in this build", file=sys.stderr)
+        _pause_if_interactive()
         return 2
 
     # Double-clicking the exe lands here with the default port, and a second
@@ -493,19 +499,6 @@ def _launch_default() -> int:
     required: command", which from Explorer looks like the window flashing and
     closing. A desktop user has no console to read that in.
     """
-    try:
-        import uvicorn  # noqa: F401  (cmd_serve imports it again)
-
-        from ..api.rest import frontend_available
-    except ImportError:
-        # Core install without the 'api' extra: no GUI to fall back to.
-        build_parser().print_help()
-        return 2
-
-    if not frontend_available():
-        build_parser().print_help()
-        return 2
-
     return cmd_serve(argparse.Namespace(host="127.0.0.1", port=8000,
                                         log_level="warning", open_browser=True))
 
