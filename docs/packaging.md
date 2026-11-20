@@ -64,5 +64,11 @@ dist/srm inverse --family star --outer-diameter 0.16 --thrust 6000 --burn-time 4
 
 ## 注意
 
-可执行文件是构建产物，不纳入版本库（见 `.gitignore`：`dist/`、`release/*.exe`、
-`packaging/wheelhouse/`、`build/pyi/`）。分发时请连同 `LICENSE` 与免责声明一并提供。
+可执行文件**大部分**是构建产物，不纳入版本库（见 `.gitignore`：`dist/`、
+`packaging/wheelhouse/`、`build/pyi/`、`release/srm`）。唯一的例外是
+`release/srm.exe`：它被有意提交，便于没有构建工具链的用户直接下载使用。
+该文件由 CI 之外的本地 Wine 容器构建，提交前须实测（见上文"验收"）。
+分发时请连同 `LICENSE` 与免责声明一并提供。
+
+> 为什么只提交 Windows 版：GitHub 单文件上限 100 MB，`release/srm.exe`
+> 约 80 MB 可用；Linux/macOS 用户请用 `pip install` 或自行构建。

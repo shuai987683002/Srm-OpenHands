@@ -64,6 +64,19 @@ PYTHONPATH=src python examples/run_case.py examples/projects/06_synthesis_star
 > 执行 `export PATH="$HOME/.local/bin:$PATH"`，或直接用等效方式
 > `PYTHONPATH=src python -m srm_open.api.cli ...`。
 
+### Windows 免安装版
+
+不想装 Python 的话，直接下载仓库内的 `release/srm.exe`（约 80 MB，无需运行时）：
+
+```powershell
+.\release\srm.exe design --thrust 4000 --burn-time 2.5
+.\release\srm.exe serve          # 浏览器 UI：http://127.0.0.1:8000/ui/
+```
+
+该二进制已内置数据库与前端资源，可脱离源码树运行。校验值见
+[`release/CHECKSUMS.txt`](release/CHECKSUMS.txt)；如需自行构建，见
+[docs/packaging.md](docs/packaging.md)。
+
 也可以直接在浏览器里设计（正向 / 逆向）：
 
 ```bash

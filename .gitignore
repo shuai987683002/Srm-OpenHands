@@ -36,3 +36,6 @@ build/pyi/
 # built binaries (rebuild with packaging/build_windows_exe.sh)
 release/*.exe
 release/srm
+# ...except the Windows release binary, which is committed on purpose so users
+# can download it without a build toolchain. Keep it under GitHub's 100 MB limit.
+!release/srm.exe
