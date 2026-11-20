@@ -1,0 +1,166 @@
+name: Release
+
+# Tag-driven release: push a tag like ``v0.1.0`` and this publishes
+#   srm.exe (Windows, no runtime needed)  +  wheel  +  sdist  +  SHA256SUMS
+# to a GitHub Release.  The binaries stay out of git history; only the tag and
+# the release assets carry them.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  # Fail fast on a tag that does not match the version baked into the package,
+  # so a release can never ship a binary that reports the wrong number.
+  version-check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - id: v
+        name: Tag matches package version
+        run: |
+          set -eu
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          pkg=$(python3 -c "import tomllib,pathlib;print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+          mod=$(python3 -c "import re,pathlib;print(re.search(r'__version__\s*=\s*\"([^\"]+)\"',pathlib.Path('src/srm_open/__init__.py').read_text()).group(1))")
+          echo "tag=$tag pyproject=$pkg module=$mod"
+          [ "$tag" = "v$pkg" ] || { echo "::error::tag $tag != v$pkg"; exit 1; }
+          [ "$pkg" = "$mod" ] || { echo "::error::pyproject $pkg != __init__ $mod"; exit 1; }
+          echo "version=$pkg" >> "$GITHUB_OUTPUT"
+
+  windows-exe:
+    needs: version-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      # Runner images ship a docker daemon; the build runs Windows CPython under
+      # Wine because PyInstaller cannot cross-compile.
+      - name: Build srm.exe (Wine container)
+        run: ./packaging/build_windows_exe.sh
+
+      - name: Smoke-test the frozen binary
+        # A binary that cannot design a motor is not a release artefact.
+        run: |
+          set -eu
+          docker run --rm -v "$PWD/release:/rel:ro" srm-win \
+            wine /rel/srm.exe design --thrust 4000 --burn-time 2.5 \
+            | tee /tmp/design.txt
+          grep -q "verification      : 8/8 passed" /tmp/design.txt
+
+      - name: Verify the embedded web UI serves
+        run: |
+          set -eu
+          docker run --rm -d --name srm-ui -p 18000:18000 \
+            -v "$PWD/release:/rel:ro" srm-win \
+            wine /rel/srm.exe serve --host 0.0.0.0 --port 18000
+          trap 'docker rm -f srm-ui >/dev/null 2>&1 || true' EXIT
+          for i in $(seq 1 40); do
+            curl -sf -o /dev/null http://127.0.0.1:18000/ui/ && break || sleep 3
+          done
+          for path in /ui/ /ui/app.js /families /propellants; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:18000$path")
+            echo "$path -> $code"
+            [ "$code" = "200" ]
+          done
+
+      - name: Checksums
+        run: |
+          cd release
+          sha256sum srm.exe > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: srm-exe
+          path: |
+            release/srm.exe
+            release/SHA256SUMS
+
+  python-dist:
+    needs: version-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build wheel + sdist
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+      - name: Install the wheel in a clean venv and smoke-test
+        # Guards the packaging contract: the databases must ship inside the wheel.
+        run: |
+          set -eu
+          python -m venv /tmp/v
+          /tmp/v/bin/pip install -q dist/*.whl
+          cd /tmp
+          /tmp/v/bin/srm design --thrust 4000 --burn-time 2.5 | tee /tmp/d.txt
+          grep -q "verification      : 8/8 passed" /tmp/d.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: dist/*
+
+  publish:
+    needs: [version-check, windows-exe, python-dist]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+      - name: Flatten artefacts
+        run: |
+          mkdir -p out
+          cp assets/srm-exe/srm.exe out/
+          cp assets/srm-exe/SHA256SUMS out/
+          cp assets/python-dist/*.whl assets/python-dist/*.tar.gz out/
+          ls -lh out/
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: Srm-Open ${{ needs.version-check.outputs.version }}
+          generate_release_notes: true
+          body: |
+            Srm-Open ${{ needs.version-check.outputs.version }} — 固体火箭发动机药型设计
+            （教学、科研与非商业工业研发用途）
+
+            | 文件 | 平台 | 说明 |
+            |---|---|---|
+            | `srm.exe` | Windows x86_64 | 免安装，内置数据库与浏览器 UI |
+            | `srm_open-*.whl` | 全平台 | `pip install srm_open-*.whl` |
+            | `srm_open-*.tar.gz` | 全平台 | 源码分发包 |
+
+            校验：`sha256sum -c SHA256SUMS`（Windows 用
+            `certutil -hashfile srm.exe SHA256`）。
+
+            ```powershell
+            .\srm.exe design --thrust 4000 --burn-time 2.5
+            .\srm.exe serve          # http://127.0.0.1:8000/ui/
+            ```
+
+            **边界**：本工具输出为初步设计级估算，不构成可用于发动机定型、
+            试验或生产的工程结论；禁止用于武器化或违反适用法律的用途。
+            详见 `LICENSE` 与 `docs/` 中的适用范围说明。
+          files: out/*
+          fail_on_unmatched_files: true

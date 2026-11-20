@@ -1,4 +1,0 @@
-# SHA-256 checksums for committed release binaries.
-# Verify with:  sha256sum -c CHECKSUMS.txt   (Linux/macOS)
-#               certutil -hashfile srm.exe SHA256   (Windows)
-a5e94f693ca8992cbfd0c0aae9937c4d3b4dfeb764de9748563afebab329b5b8  srm.exe   # 83474771 bytes

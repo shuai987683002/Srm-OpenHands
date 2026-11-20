@@ -66,15 +66,20 @@ PYTHONPATH=src python examples/run_case.py examples/projects/06_synthesis_star
 
 ### Windows 免安装版
 
-不想装 Python 的话，直接下载仓库内的 `release/srm.exe`（约 80 MB，无需运行时）：
+不想装 Python 的话，从
+[Releases](https://github.com/shuai987683002/Srm-OpenHands/releases) 下载
+`srm.exe`（约 80 MB，无需运行时）：
 
 ```powershell
-.\release\srm.exe design --thrust 4000 --burn-time 2.5
-.\release\srm.exe serve          # 浏览器 UI：http://127.0.0.1:8000/ui/
+.\srm.exe design --thrust 4000 --burn-time 2.5
+.\srm.exe serve          # 浏览器 UI：http://127.0.0.1:8000/ui/
 ```
 
-该二进制已内置数据库与前端资源，可脱离源码树运行。校验值见
-[`release/CHECKSUMS.txt`](release/CHECKSUMS.txt)；如需自行构建，见
+该二进制已内置数据库与前端资源，可脱离源码树运行。每个 Release 附
+`SHA256SUMS`，校验：`certutil -hashfile srm.exe SHA256`。
+
+exe 不打进 git 仓库（80 MB 的二进制会永久留在历史里），由
+`.github/workflows/release.yml` 在打 tag 时构建并发布；自行构建见
 [docs/packaging.md](docs/packaging.md)。
 
 也可以直接在浏览器里设计（正向 / 逆向）：

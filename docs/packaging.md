@@ -64,11 +64,29 @@ dist/srm inverse --family star --outer-diameter 0.16 --thrust 6000 --burn-time 4
 
 ## 注意
 
-可执行文件**大部分**是构建产物，不纳入版本库（见 `.gitignore`：`dist/`、
-`packaging/wheelhouse/`、`build/pyi/`、`release/srm`）。唯一的例外是
-`release/srm.exe`：它被有意提交，便于没有构建工具链的用户直接下载使用。
-该文件由 CI 之外的本地 Wine 容器构建，提交前须实测（见上文"验收"）。
+可执行文件是构建产物，**不纳入版本库**（见 `.gitignore`：`dist/`、
+`packaging/wheelhouse/`、`build/pyi/`、`release/*.exe`、`release/SHA256SUMS`）。
+发布通过 GitHub Releases 完成：`.github/workflows/release.yml` 在打 tag
+（如 `v0.1.0`）时构建 exe、wheel 与 sdist，上传为 release 资产。
 分发时请连同 `LICENSE` 与免责声明一并提供。
 
-> 为什么只提交 Windows 版：GitHub 单文件上限 100 MB，`release/srm.exe`
-> 约 80 MB 可用；Linux/macOS 用户请用 `pip install` 或自行构建。
+> 为什么不把 exe 提交到仓库：它是 80 MB 的二进制，一旦进入 git 历史，
+> 此后每次 clone 都要下载它，且无法真正删除。Releases 提供同样的下载便利，
+> 却不污染历史。`pip install` 仍是 Linux/macOS 用户的首选。
+
+## 发布流程
+
+```bash
+# 1. 确认版本号一致（工作流会校验）
+grep -n '^version' pyproject.toml          # → 0.1.0
+grep -n '__version__' src/srm_open/__init__.py
+
+# 2. 打 tag 并推送，触发构建与发布
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+工作流分四个 job：`version-check`（tag 与版本号必须一致）→
+`windows-exe`（Wine 构建 exe，实测 `design` 与 `serve`）→
+`python-dist`（wheel + sdist，并在干净 venv 中安装验证）→
+`publish`（汇总为 Release 资产）。任一步失败都不会发布。
