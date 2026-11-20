@@ -268,10 +268,22 @@ docs/            plan, architecture.md, theory/, user_guide/, verification/
 - **AP/HTPB Gibbs T_ad is low** vs Cantera (chlorine/condensed-phase
   simplification). Default to literature `direct` thermo; `ap_htpb_gibbs` is a
   demo entry only.
+- **A double-clicked exe gets no arguments.** `main()` therefore treats an empty
+  argv as "start the web UI", not as a usage error: argparse's
+  `required=True` on subparsers exited 2 and Explorer closed the console
+  instantly, which read as a crash. `serve` walks forward up to 20 ports so a
+  second instance does not die on "address already in use", and in a frozen
+  build an unhandled exception is logged to `srm-error.log` (exe dir → cwd →
+  `%LOCALAPPDATA%` → temp) and waits for Enter. All of that is gated on
+  `sys.frozen` so tests still see real exceptions.
+- **The 3.11 CI job installs `[dev,viz]`, not `[dev,api]`.** Tests that touch
+  `cmd_serve` must stub `uvicorn` and `srm_open.api.rest` through `sys.modules`
+  rather than importing them, or they pass locally (fastapi installed) and fail
+  in CI. `tests/unit/test_cli_launch.py` has a `fake_web` fixture for this.
 
 ## Verification status
 
-All of `tests/` passes (140 tests: unit + integration + verification +
+All of `tests/` passes (195 tests: unit + integration + verification +
 performance). The REST and 3-D preview suites `importorskip` FastAPI /
 matplotlib, so they skip rather than fail when the optional extras are absent. V&V cases (V1–V9) and their recorded results are in
 `docs/verification/verification_report.md`: thermochemistry vs Cantera (<0.1%),
