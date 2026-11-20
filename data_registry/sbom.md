@@ -34,6 +34,7 @@ and compatible with this project's Apache-2.0 license.
 | httpx | 0.28.1 | BSD-3-Clause | REST tests (TestClient transport) |
 | jsonschema | 4.26.0 | MIT | validating examples against `data/schema/` |
 | pytest | 9.2.0 | MIT | test runner |
+| tomli | — | MIT | TOML parsing on Python 3.10 (`tomllib` is stdlib from 3.11); SBOM guard only |
 | pytest-cov | 7.1.0 | MIT | coverage measurement |
 | ruff | — | MIT | linter |
 

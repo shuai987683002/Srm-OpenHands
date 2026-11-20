@@ -9,7 +9,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import tomllib
+
+try:  # tomllib is stdlib from 3.11; the project still supports 3.10.
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - exercised on 3.10 only
+    import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 SBOM = ROOT / "data_registry" / "sbom.md"

@@ -66,7 +66,7 @@ jobs:
       - name: Install with notebook tooling
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,viz]" nbformat nbclient ipykernel
+          pip install -e ".[dev,viz]" nbformat nbclient ipykernel nbconvert
       - name: Execute the teaching notebook
         # The notebook is a teaching deliverable; a broken one is a broken lesson.
         run: |
