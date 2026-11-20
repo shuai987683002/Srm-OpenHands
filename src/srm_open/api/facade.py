@@ -96,8 +96,15 @@ def _refine_synthesis(req: RequirementSet, propellant: PropellantModel, family: 
     int_idx = [i for i, p in enumerate(space.parameters) if p.integer]
 
     def perf_at(vec):
-        return forward_design(req, space.to_geometry(vec), propellant,
-                              fast=True).performance
+        # A corner of the design space can describe a degenerate grain (a port
+        # that fills the cross-section has no burning area, so no throat can be
+        # sized).  That is an infeasible candidate, not a failure of the search:
+        # report it as None so the caller treats it as a rejected point.
+        try:
+            return forward_design(req, space.to_geometry(vec), propellant,
+                                  fast=True).performance
+        except (ValueError, ArithmeticError):
+            return None
 
     def clipped(vec):
         out = np.minimum(np.maximum(vec, lo), hi)
@@ -303,8 +310,11 @@ def _polish_on_full_model(space, x0: np.ndarray, req: RequirementSet,
     thrust once on the full model removes that bias.
     """
     def full_perf(vec):
-        return forward_design(req, space.to_geometry(vec), propellant,
-                              fast=False).performance
+        try:
+            return forward_design(req, space.to_geometry(vec), propellant,
+                                  fast=False).performance
+        except (ValueError, ArithmeticError):
+            return None
 
     def clipped(vec):
         out = np.minimum(np.maximum(vec, lo), hi)

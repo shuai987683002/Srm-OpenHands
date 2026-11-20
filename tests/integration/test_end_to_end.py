@@ -209,6 +209,33 @@ def test_cli_forward_writes_report_and_json(tmp_path):
     assert js.exists()
 
 
+def test_inverse_survives_a_degenerate_corner_of_the_design_space():
+    """Regression: ``_refine_synthesis`` called ``forward_design`` unguarded, so
+    a candidate whose port filled the cross-section raised ValueError out of the
+    whole search instead of scoring as infeasible (finocyl/airfoil crashed)."""
+    from srm_open.api.cli import main
+    for family in ("finocyl", "airfoil"):
+        assert main(["inverse", "--family", family, "--outer-diameter", "0.14",
+                     "--thrust", "4000", "--burn-time", "2.5",
+                     "--max-iter", "60"]) == 0
+
+
+def test_de_budget_does_not_scale_with_parameter_count_alone():
+    """``maxiter`` in differential evolution multiplies by popsize*n_params, so
+    an uncapped run evaluated ~9000 forward designs (minutes of shapely work)."""
+    import numpy as np
+
+    from srm_open.inverse.optimize import minimize
+    calls = []
+    def f(x):
+        calls.append(1)
+        return float(np.sum(x ** 2))
+    r = minimize(f, np.full(5, 0.5), bounds=[(0.0, 1.0)] * 5,
+                 method="de", max_iter=120)
+    assert len(calls) < 1500, len(calls)
+    assert r.nit >= 1
+
+
 def test_cli_inverse_works_without_a_template():
     """Regression: ``--template`` used to be mandatory for ``srm inverse``, so a
     designer who only knew the envelope had to pick an unrelated template."""

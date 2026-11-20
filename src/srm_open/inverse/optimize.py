@@ -47,10 +47,20 @@ def minimize(fun: Callable[[np.ndarray], float], x0: np.ndarray,
         from scipy.optimize import minimize as scipy_minimize
 
         if method in ("de", "cma", "differential_evolution"):
+            # ``maxiter`` alone is not a usable budget: each generation evaluates
+            # popsize * n_params candidates (15 * 5 by default), so 120
+            # generations is ~9000 forward designs and several minutes of
+            # shapely work.  Cap the total evaluations as well and shrink the
+            # population so the generation count still fits inside it.
+            n = len(x0)
+            popsize = int(np.clip(max_iter // 20, 5, 15))
+            budget = max(200, 40 * n * max_iter // 120)
+            generations = max(8, min(max_iter, budget // (popsize * n)))
             res = differential_evolution(
                 wrapped, list(zip(lo, hi)) if bounds else None,
-                maxiter=max_iter, seed=seed, tol=1e-8, polish=True,
-                strategy="best1bin", mutation=(0.3, 1.0), recombination=0.7,
+                maxiter=generations, popsize=popsize, seed=seed, tol=1e-8,
+                polish=True, strategy="best1bin", mutation=(0.3, 1.0),
+                recombination=0.7,
             )
             return OptimizeResult(np.asarray(res.x), float(res.fun), bool(res.success),
                                   int(res.nit), str(res.message), history)

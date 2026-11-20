@@ -131,7 +131,7 @@ def cmd_inverse(args) -> int:
 
     prop = get_propellant(args.propellant)
     space = default_design_space(family, outer_diameter,
-                                 (0.1, max(0.3, length_hint * 2)),
+                                 (0.1, max(0.3, length_hint * 1.5)),
                                  burn_mode=BurnMode(args.burn_mode))
     result = inverse_design(_req_from_args(args), prop, space,
                             method=args.optimizer, max_iter=args.max_iter)
