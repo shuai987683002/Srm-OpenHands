@@ -32,6 +32,30 @@ generate reference values in the verification tests, never at runtime.
 `pyproject.toml` suppresses the summary line, so a green run prints only dots
 and an `EXIT=0`. Current state: **143 passed, 1 skipped**, ~6.5 min.
 
+## Releasing
+
+Binaries are **not** committed. `.github/workflows/release.yml` builds and
+publishes them when you push a `v*` tag:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+Four jobs: `version-check` (tag must equal `pyproject.toml` version and
+`__version__`) → `windows-exe` → `python-dist` → `publish`. The Windows job runs
+on `windows-latest` with native PyInstaller and smoke-tests both `design` and
+`serve`; the wheel job installs into a clean venv and re-runs `design`. Anything
+red means no release.
+
+Do **not** build the exe with `packaging/build_windows_exe.sh` in CI: that Wine
+container fails on GitHub runners (`wine: socket : Function not implemented`,
+seccomp blocks a socket syscall) and only works locally off a warm layer cache.
+The script is still the right tool on a Linux workstation.
+
+An 80 MB `release/srm.exe` blob from an earlier commit (`1ab0db4`) is still in
+history, so `.git` is ~84 MB. Removing it needs a history rewrite plus a force
+push to `main` — not done, since that breaks every existing clone.
+
 Four integration tests guard the design-loop failure modes, because those
 failures were silent (a plausible-looking design that missed the target) rather
 than loud: `test_forward_design_hits_targets_for_every_internal_burning_family`,
