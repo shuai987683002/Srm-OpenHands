@@ -31,7 +31,7 @@ generate reference values in the verification tests, never at runtime.
 `-o addopts=""` is needed to see the pass/fail counts: `addopts = "-q"` in
 `pyproject.toml` suppresses the summary line, so a green run prints only dots
 and an `EXIT=0`. Current state (dev extra only, no FastAPI/matplotlib):
-**184 passed, 11 skipped**, ~8 min.
+**186 passed, 11 skipped**, ~8 min.
 
 ## Releasing
 
@@ -320,7 +320,7 @@ fits this repo: the engine already produces `verification.checks` and
 
 ## Verification status
 
-All of `tests/` passes (193 collected: 184 pass, 11 skip with only the `dev`
+All of `tests/` passes (195 collected: 186 pass, 11 skip with only the `dev`
 extra installed). The REST and 3-D preview suites `importorskip` FastAPI /
 matplotlib, so they skip rather than fail when the optional extras are absent. V&V cases (V1–V9) and their recorded results are in
 `docs/verification/verification_report.md`: thermochemistry vs Cantera (<0.1%),
