@@ -392,3 +392,64 @@ def test_phase_quick_reference_table_lists_every_phase_with_four_columns():
     assert [r[0].split()[0] for r in rows] == [f"P{i}" for i in range(10)]
     for cells in rows:
         assert all(c.strip() for c in cells), cells
+
+
+def test_d4_1_inequalities_in_the_tier_table_actually_hold():
+    """Every `a < b` / `a > b` in the D4-1 table is evaluated, not trusted.
+
+    The tier table is the procurement decision point, so a flipped comparison
+    ("32B full-param fits in 8x48G") would send a reader to the wrong budget.
+    The training-memory figures use the §9.4 accounting (weights + adapter
+    state), not a weight multiplier -- that is what makes 32B QLoRA fit in
+    24 GiB while 32B full-param needs 525 GiB.
+    """
+    usable = {
+        "32G": 32 * 0.92,
+        "48G": 48 * 0.92,
+        "8x48G": 8 * 48 * 0.92,
+        "8x80G": 8 * 80 * 0.92,
+    }
+    assert round(usable["32G"], 1) == 29.4
+    assert round(usable["48G"], 1) == 44.2
+    assert round(usable["8x48G"], 1) == 353.3
+    assert round(usable["8x80G"], 1) == 588.8
+
+    lora8 = 16 + 4  # §9.4: FP16 weights + adapter/optimiser state
+    qlora32 = 18 + 6  # §9.4: NF4 weights + adapter/optimiser state
+    full32 = 32.8 * 16  # AdamW, 16 bytes per parameter
+    assert round(full32, 1) == 524.8
+
+    rows = _doc_table("### 8.4 决策点 D4-1", 4)
+    text = " ".join(c for cells in rows for c in cells)
+    pairs = re.findall(r"(\d+(?:\.\d+)?)\s*([<>])\s*(\d+(?:\.\d+)?)", text)
+    assert len(pairs) >= 6, pairs
+    for lhs, op, rhs in pairs:
+        a, b = float(lhs), float(rhs)
+        assert (a < b) if op == "<" else (a > b), (lhs, op, rhs)
+
+    # the claims that decide each tier
+    assert lora8 < usable["32G"]
+    assert qlora32 < usable["32G"]  # "just fits", hence the 5.4 GiB caveat
+    assert usable["32G"] - qlora32 < 6
+    assert qlora32 < usable["48G"]
+    assert full32 > usable["48G"] and full32 > usable["8x48G"]
+    assert full32 < usable["8x80G"]
+
+
+def test_d4_1_concurrency_cells_match_the_script():
+    """11/22, 10/21, 103/206 in the tier table come from `table_concurrency`."""
+    m = _load()
+    got = {
+        (r["model"], r["gpu_gib"], r["kv"]): r["concurrency"]
+        for r in m.table_concurrency()["rows"]
+        if r["ctx"] == 8192
+    }
+    assert got[("32B Q4_K_M x1", 48, "fp16")] == 10
+    assert got[("32B Q4_K_M x1", 48, "fp8")] == 21
+    assert got[("70B FP8 x8 (TP)", 48, "fp16")] == 103
+    assert got[("70B FP8 x8 (TP)", 48, "fp8")] == 206
+    # 30B-A3B on a 32 GB card is not a script case, so recompute with its formula
+    base = 30.5 * m.QUANT["Q4_K_M"] + 2.5
+    for kv_bytes, want in ((2, 11), (1, 22)):
+        per = m.kv_bytes_per_token(48, 4, 128, kv_bytes) * 8192 / m.GIB
+        assert int((32 * 0.92 - base) / per) == want, kv_bytes
