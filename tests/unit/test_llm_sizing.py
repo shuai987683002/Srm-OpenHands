@@ -345,3 +345,50 @@ def test_documented_decode_table_matches_the_script():
                 cell,
                 expected,
             )
+
+
+PHASE_CHAPTERS = {
+    4: "P0",
+    5: "P1",
+    6: "P2",
+    7: "P3",
+    8: "P4",
+    9: "P5",
+    10: "P6",
+    11: "P7",
+    12: "P8",
+    13: "P9",
+}
+
+
+def test_every_phase_chapter_states_input_strategy_decision_and_fallback():
+    """The brief requires every phase to name input / strategy / decision point / fallback.
+
+    Checked on the *subsection headings*, not on prose: a chapter that merely
+    mentions "回退" in a sentence does not give the reader a contract to execute.
+    """
+    text = (ROOT / "docs" / "llm_agent" / "离线SRM领域AI智能体部署方案.md").read_text(
+        encoding="utf-8"
+    )
+    chunks = re.split(r"^## ", text, flags=re.M)
+    seen = {}
+    for chunk in chunks:
+        m = re.match(r"(\d+)\. ", chunk)
+        if not m:
+            continue
+        seen[int(m.group(1))] = chunk
+    assert set(PHASE_CHAPTERS) <= set(seen), sorted(set(PHASE_CHAPTERS) - set(seen))
+
+    for chapter, phase in PHASE_CHAPTERS.items():
+        heads = re.findall(r"^### \d+\.\d+ (.+)$", seen[chapter], flags=re.M)
+        for keyword in ("输入", "策略", "决策点", "回退"):
+            assert any(keyword in h for h in heads), (phase, chapter, keyword, heads)
+
+
+def test_phase_quick_reference_table_lists_every_phase_with_four_columns():
+    """§1.5 must stay a usable 10-row contract table, one row per phase."""
+    rows = _doc_table("### 1.5 阶段速查表", 5)
+    assert len(rows) == 10, rows
+    assert [r[0].split()[0] for r in rows] == [f"P{i}" for i in range(10)]
+    for cells in rows:
+        assert all(c.strip() for c in cells), cells

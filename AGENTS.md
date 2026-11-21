@@ -31,7 +31,7 @@ generate reference values in the verification tests, never at runtime.
 `-o addopts=""` is needed to see the pass/fail counts: `addopts = "-q"` in
 `pyproject.toml` suppresses the summary line, so a green run prints only dots
 and an `EXIT=0`. Current state (dev extra only, no FastAPI/matplotlib):
-**182 passed, 11 skipped**, ~8 min.
+**184 passed, 11 skipped**, ~8 min.
 
 ## Releasing
 
@@ -294,6 +294,13 @@ it comes from `scripts/llm_sizing.py` (`kv_bytes_per_token`, `decode_tok_s`,
 table cell and the test fails: re-issue the document instead of editing numbers by
 hand.
 
+`tests/unit/test_llm_sizing.py` also enforces the document's **contract shape**:
+every phase chapter (P0–P9, chapters 4–13) must carry `###` subsections whose
+titles contain 输入 / 策略 / 决策点 / 回退, and §1.5 must stay a 10-row table with
+all five columns filled. The brief asks for those four things per phase, and a
+chapter that only mentions "回退" in a sentence gives the reader nothing to
+execute. Renaming a heading is fine; dropping the word is not.
+
 Three things in that script are deliberate and should not be "simplified":
 
 - **`table_fit` ranks by context first, precision second.** Ranking precision
@@ -313,7 +320,7 @@ fits this repo: the engine already produces `verification.checks` and
 
 ## Verification status
 
-All of `tests/` passes (191 collected: 182 pass, 11 skip with only the `dev`
+All of `tests/` passes (193 collected: 184 pass, 11 skip with only the `dev`
 extra installed). The REST and 3-D preview suites `importorskip` FastAPI /
 matplotlib, so they skip rather than fail when the optional extras are absent. V&V cases (V1–V9) and their recorded results are in
 `docs/verification/verification_report.md`: thermochemistry vs Cantera (<0.1%),
