@@ -102,11 +102,13 @@ def test_json_payload_is_serialisable_and_complete():
     assert len(round_trip["model_sizes"]["rows"]) == len(m.MODELS)
 
 
-def _doc_table(section: str, ncols: int) -> list[list[str]]:
+MAIN_DOC = ROOT / "docs" / "llm_agent" / "离线SRM领域AI智能体部署方案.md"
+REVIEW_DOC = ROOT / "docs" / "llm_agent" / "附件方案评审与优化建议.md"
+
+
+def _doc_table(section: str, ncols: int, doc: Path | None = None) -> list[list[str]]:
     """Rows of the first pipe table under `section`, cells stripped of bold marks."""
-    text = (ROOT / "docs" / "llm_agent" / "离线SRM领域AI智能体部署方案.md").read_text(
-        encoding="utf-8"
-    )
+    text = (doc or MAIN_DOC).read_text(encoding="utf-8")
     start = text.index(section)
     rows = []
     for line in text[start:].splitlines():
@@ -455,3 +457,163 @@ def test_d4_1_concurrency_cells_match_the_script():
     for kv_bytes, want in ((2, 11), (1, 22)):
         per = m.kv_bytes_per_token(48, 4, 128, kv_bytes) * 8192 / m.GIB
         assert int((32 * 0.92 - base) / per) == want, kv_bytes
+
+
+# --- review document (附件方案评审与优化建议.md) ------------------------------
+
+
+def test_eval_power_numbers_quoted_in_the_review_are_reproducible():
+    """The review's central claim is that 30 questions are too few.
+
+    That claim only stands if the intervals are computed, not asserted, so the
+    table is re-derived here cell by cell.
+    """
+    m = _load()
+    power = m.table_eval_power()
+    rows = {r["n"]: r for r in power["rows"]}
+    assert rows[30]["half_width"] == 0.1108
+    assert rows[30]["lo"] == 0.7438 and rows[30]["hi"] == 0.9654
+    assert rows[150]["half_width"] == 0.0484
+    assert power["n_for_10pct"] == 34
+    assert power["n_for_5pct"] == 141
+    assert power["n_for_3pct"] == 384
+    assert power["n_14b_vs_32b_paired"] == 116
+    assert power["n_5pt_gap_paired"] == 469
+    # a paired design must never need more questions than an unpaired one
+    assert power["n_14b_vs_32b_paired"] < power["n_14b_vs_32b"]
+    assert power["n_5pt_gap_paired"] < power["n_5pt_gap"]
+
+    doc = _doc_table("### 6.2 策略：先算样本量", 6, REVIEW_DOC)
+    quoted = {int(c[0]): c for c in doc if c[0].isdigit()}
+    for n, cells in quoted.items():
+        assert (
+            abs(
+                float(cells[3].replace("%", "").replace("[", "").split(",")[0])
+                - rows[n]["lo"] * 100
+            )
+            <= 0.15
+        ), n
+        assert (
+            abs(float(cells[4].lstrip("±").replace(" pp", "")) - rows[n]["half_width"] * 100)
+            <= 0.15
+        ), n
+
+
+def test_review_rule_of_three_matches_its_safety_argument():
+    """20 injection cases with zero failures only bound the rate at 15%."""
+    m = _load()
+    assert round(m.rule_of_three(20) * 100) == 15
+    assert round(m.rule_of_three(30) * 100) == 10
+
+
+def test_review_storage_and_power_figures_come_from_the_script():
+    m = _load()
+    budget = m.storage_budget_gib()
+    assert budget["weights"] == 173.7
+    assert budget["retrievers_fp32"] == 4.5
+    assert budget["total"] == 178.2
+    # peak = 575 W GPU + 170 W CPU + 100 W platform, quoted in §3.4
+    assert round(m.psu_headroom(845, 1200), 2) == 1.42
+    assert round(m.psu_headroom(845, 1600), 2) == 1.89
+    assert round(m.ups_energy_wh(845, 10)) == 141
+
+
+def test_review_bandwidth_per_gib_ranking_matches_its_argument():
+    """The review argues the 5090 wins on bandwidth per GiB, not on capacity."""
+    m = _load()
+    rows = {r["hardware"]: r["bw_per_gib"] for r in m.bandwidth_per_gib()}
+    assert rows["RTX 5090 32G"] == 56.0
+    assert rows["RTX 6000 Ada 48G"] == 20.0
+    assert rows["L40S 48G"] == 18.0
+    assert rows["A100-80G"] == 25.5
+    assert max(rows.values()) == rows["RTX 5090 32G"]
+
+
+def test_review_serving_table_matches_the_script_formulas():
+    """§3.2's eight rows are recomputed from the same closed forms."""
+    m = _load()
+    by_name = {r["model"]: r for r in m.table_model_sizes()["rows"]}
+    cfg = {n: (p, layers, kvh, hd) for n, p, _pa, layers, kvh, hd in m.MODELS}
+
+    def need(model, ctx, gpu, quant="Q4_K_M", overhead=2.5):
+        _p, layers, kvh, hd = cfg[model]
+        kv = m.kv_bytes_per_token(layers, kvh, hd) * ctx / m.GIB
+        weight = by_name[model][quant]
+        # the script rounds the total, not the weight: 30.5 x 0.606 = 18.483,
+        # so the row reads 21.7, not 18.5 + 0.75 + 2.5 = 21.8
+        total = round(cfg[model][0] * m.QUANT[quant] + kv + overhead, 1)
+        return weight, round(kv, 2), total, int((gpu * 0.92 - weight - overhead) / kv)
+
+    w, kv, tot, seqs = need("Qwen3-30B-A3B", 8192, 32)
+    assert (w, kv, tot, seqs) == (18.5, 0.75, 21.7, 11)
+    w, kv, tot, seqs = need("Qwen2.5-32B", 16384, 32)
+    assert (w, kv, tot, seqs) == (19.9, 4.0, 26.4, 1)
+    w, kv, tot, seqs = need("Qwen2.5-32B", 32768, 32)
+    assert tot > 32 * 0.92  # does not fit at all -- the "concurrency 0" row
+    w, kv, tot, seqs = need("Qwen2.5-14B", 32768, 32)
+    assert (w, kv, tot, seqs) == (8.9, 6.0, 17.4, 3)
+    w, kv, tot, seqs = need("Qwen2.5-32B", 32768, 48)
+    assert (w, kv, tot, seqs) == (19.9, 8.0, 30.4, 2)
+    w, kv, tot, seqs = need("Llama-3.3-70B", 32768, 96)
+    assert (w, kv, tot, seqs) == (42.8, 10.0, 55.3, 4)
+
+
+def test_review_candidate_table_matches_the_serving_table():
+    """The 14B/30B-A3B/32B comparison must agree with §3.2's own numbers."""
+    doc = _doc_table("| 模型 | 权重 GiB (Q4) | 32k 并发", 6, REVIEW_DOC)
+    cells = {c[0]: c for c in doc}
+    assert cells["Qwen2.5-14B"][1:5] == ["8.9", "3", "12", "104.2"]
+    assert cells["Qwen3-30B-A3B"][1:5] == ["18.5", "2", "11", "56.4"]
+    assert cells["Qwen3-32B"][1:5] == ["19.9", "0（16k 仅 1）", "3", "49.6"]
+
+
+def test_review_phase_table_has_the_four_elements_per_phase():
+    """Every phase row states input, strategy, decision point and fallback."""
+    text = REVIEW_DOC.read_text(encoding="utf-8")
+    start = text.index('### 7.2 策略：把"验收"改成"判据 + 测试用例"')
+    block = text[start:].splitlines()
+    rows = [ln for ln in block if ln.startswith("| A")]
+    assert len(rows) == 6, rows
+    for ln in rows:
+        cells = [c.strip() for c in ln.strip("|").split("|")]
+        assert len(cells) == 6, cells
+        assert cells[3] and cells[4] and cells[5], cells
+
+
+def test_review_acceptance_criteria_are_numbered_and_complete():
+    text = REVIEW_DOC.read_text(encoding="utf-8")
+    ids = re.findall(r"^\| V-(\d+) \|", text, flags=re.M)
+    assert [int(i) for i in ids] == list(range(1, 13))
+
+
+def test_review_risk_table_covers_every_risk_it_names():
+    text = REVIEW_DOC.read_text(encoding="utf-8")
+    ids = re.findall(r"^\| R-(\d+) \|", text, flags=re.M)
+    assert [int(i) for i in ids] == list(range(1, 11))
+
+
+def test_review_cross_references_resolve_in_the_document_they_name():
+    """`§x.y` means this file; `主方案 §x.y` means the main plan.
+
+    A review that cites a section that does not exist is worse than no citation,
+    so both namespaces are checked against their own heading sets.
+    """
+    review = REVIEW_DOC.read_text(encoding="utf-8")
+    main = MAIN_DOC.read_text(encoding="utf-8")
+
+    def headings(text):
+        return set(re.findall(r"^#{2,4} (\d+(?:\.\d+)?)", text, flags=re.M))
+
+    local_refs = set(re.findall(r"(?<!主方案 )§(\d+(?:\.\d+)?)", review))
+    assert local_refs <= headings(review), sorted(local_refs - headings(review))
+
+    external = set(re.findall(r"主方案 §(\d+(?:\.\d+)?)", review))
+    assert external, "the review should cite the main plan at least once"
+    assert external <= headings(main), sorted(external - headings(main))
+
+
+def test_review_and_main_plan_share_one_number_source():
+    """Both documents must quote the same script; neither may hard-code its own."""
+    for doc in (MAIN_DOC, REVIEW_DOC):
+        text = doc.read_text(encoding="utf-8")
+        assert "scripts/llm_sizing.py" in text, doc.name

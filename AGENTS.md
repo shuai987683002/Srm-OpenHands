@@ -31,7 +31,7 @@ generate reference values in the verification tests, never at runtime.
 `-o addopts=""` is needed to see the pass/fail counts: `addopts = "-q"` in
 `pyproject.toml` suppresses the summary line, so a green run prints only dots
 and an `EXIT=0`. Current state (dev extra only, no FastAPI/matplotlib):
-**186 passed, 11 skipped**, ~8 min.
+**197 passed, 11 skipped**, ~8 min.
 
 ## Releasing
 
@@ -301,6 +301,25 @@ all five columns filled. The brief asks for those four things per phase, and a
 chapter that only mentions "回退" in a sentence gives the reader nothing to
 execute. Renaming a heading is fine; dropping the word is not.
 
+A second document sits beside it: `docs/llm_agent/附件方案评审与优化建议.md`, a
+page-by-page review of a 15-page deck (`离线专属大模型建设方案_含零基础实验课.pptx`)
+that proposed an 8-week "local model + RAG" prototype. It is the light-weight
+sibling: same number source, same phase contract, but scoped to a 10-week path.
+Its central finding is a statistical one — **a 30-question eval set resolves only
+±11.1 pp at 90%**, so the deck's plan to "compare 14B vs 32B on 30 questions and
+decide whether to fine-tune" cannot work. Distinguishing 90% from 80% needs 116
+paired / 199 unpaired questions; `table_eval_power()` computes this and
+`test_eval_power_numbers_quoted_in_the_review_are_reproducible` re-derives the
+published table cell by cell. The review also adds what the deck lacked:
+`level`+`project` tags on every document (no tag, no ingest), four-layer deletion
+verification (index / logs / cache / **backups**), and a 12-case prompt-injection
+suite. If you extend the review, keep its numbers flowing through the same script.
+
+Two cross-reference namespaces are enforced by
+`test_review_cross_references_resolve_in_the_document_they_name`: a bare `§x.y`
+in the review must be a heading *in the review*, and `主方案 §x.y` must be a
+heading in the main plan. Use the prefix when you mean the other document.
+
 Three things in that script are deliberate and should not be "simplified":
 
 - **`table_fit` ranks by context first, precision second.** Ranking precision
@@ -320,7 +339,7 @@ fits this repo: the engine already produces `verification.checks` and
 
 ## Verification status
 
-All of `tests/` passes (195 collected: 186 pass, 11 skip with only the `dev`
+All of `tests/` passes (206 collected: 186 pass, 11 skip with only the `dev`
 extra installed). The REST and 3-D preview suites `importorskip` FastAPI /
 matplotlib, so they skip rather than fail when the optional extras are absent. V&V cases (V1–V9) and their recorded results are in
 `docs/verification/verification_report.md`: thermochemistry vs Cantera (<0.1%),

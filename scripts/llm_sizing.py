@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import re
 
 GIB = 1024**3
 BW_EFF = 0.65  # fraction of peak HBM/DRAM bandwidth reachable in decode
@@ -170,6 +172,137 @@ def table_training() -> dict:
                 }
             )
     return {"mfu": MFU, "rows": out}
+
+
+# --- evaluation power -------------------------------------------------------
+# A 30-question eval set is the usual "prototype" size.  These helpers say what
+# such a set can and cannot resolve, so a model-selection decision is never made
+# on an interval that is wider than the difference being judged.
+
+
+def wilson_interval(k: int, n: int, z: float = 1.959964) -> tuple[float, float]:
+    """95% Wilson score interval for k successes out of n (no normal approx)."""
+    if n == 0:
+        return (0.0, 0.0)
+    p = k / n
+    denom = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / denom
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
+    return (max(0.0, centre - half), min(1.0, centre + half))
+
+
+def n_for_half_width(target: float, p: float = 0.9, z: float = 1.959964) -> int:
+    """Smallest n whose Wilson half-width at proportion p is <= target."""
+    for n in range(5, 20000):
+        lo, hi = wilson_interval(round(p * n), n, z)
+        if (hi - lo) / 2 <= target:
+            return n
+    raise ValueError("target too tight")
+
+
+def n_for_two_proportions(p1: float, p2: float, alpha: float = 0.05, power: float = 0.8) -> int:
+    """Per-arm n to detect p1 vs p2 (unpaired two-proportion test).
+
+    Unpaired is the conservative case: a paired design on the same questions
+    (McNemar) needs fewer.  Use this to size the set before collecting it.
+    """
+    za = {0.05: 1.959964, 0.01: 2.575829}[alpha]
+    zb = {0.8: 0.841621, 0.9: 1.281552}[power]
+    pbar = (p1 + p2) / 2
+    num = (
+        za * math.sqrt(2 * pbar * (1 - pbar)) + zb * math.sqrt(p1 * (1 - p1) + p2 * (1 - p2))
+    ) ** 2
+    return math.ceil(num / (p1 - p2) ** 2)
+
+
+def n_for_paired_proportions(
+    p1: float, p2: float, discordant: float = 0.15, alpha: float = 0.05, power: float = 0.8
+) -> int:
+    """Per-arm n for a paired design (McNemar) on the same question set.
+
+    `discordant` is the share of questions where the two models disagree; only
+    those carry information.  A paired design needs fewer questions than the
+    unpaired one, but still far more than a 30-question smoke set.
+    """
+    za = {0.05: 1.959964, 0.01: 2.575829}[alpha]
+    zb = {0.8: 0.841621, 0.9: 1.281552}[power]
+    delta = p1 - p2
+    inner = discordant - delta * delta
+    if inner <= 0:
+        raise ValueError("discordant share too small for this gap")
+    return math.ceil((za * math.sqrt(discordant) + zb * math.sqrt(inner)) ** 2 / (delta * delta))
+
+
+def rule_of_three(n: int) -> float:
+    """Upper 95% bound on the failure rate when n trials show zero failures."""
+    return 3.0 / n
+
+
+def table_eval_power() -> dict:
+    rows = []
+    for n in (30, 50, 100, 150, 200, 400):
+        lo, hi = wilson_interval(round(0.9 * n), n)
+        rows.append(
+            {
+                "n": n,
+                "k_at_90pct": round(0.9 * n),
+                "lo": round(lo, 4),
+                "hi": round(hi, 4),
+                "half_width": round((hi - lo) / 2, 4),
+                "zero_fail_upper": round(rule_of_three(n), 4),
+            }
+        )
+    return {
+        "rows": rows,
+        "n_for_10pct": n_for_half_width(0.10),
+        "n_for_5pct": n_for_half_width(0.05),
+        "n_for_3pct": n_for_half_width(0.03),
+        "n_14b_vs_32b": n_for_two_proportions(0.90, 0.80),
+        "n_5pt_gap": n_for_two_proportions(0.90, 0.85),
+        "n_14b_vs_32b_paired": n_for_paired_proportions(0.90, 0.80),
+        "n_5pt_gap_paired": n_for_paired_proportions(0.90, 0.85),
+    }
+
+
+# --- facility sizing --------------------------------------------------------
+
+
+def storage_budget_gib(tiers=("Q4_K_M", "Q8_0", "FP16"), models=("Qwen2.5-14B", "Qwen2.5-32B")):
+    """Weights for every precision tier of the main models, plus the retrievers."""
+    by_name = {m[0]: m[1] for m in MODELS}
+    weights = sum(by_name[n] * QUANT[q] for n in models for q in tiers)
+    embed = 2 * 0.568 * 4  # bge-m3 + reranker-v2-m3, both 568M, fp32 worst case
+    return {
+        "weights": round(weights, 1),
+        "retrievers_fp32": round(embed, 1),
+        "total": round(weights + embed, 1),
+    }
+
+
+def bandwidth_per_gib() -> list:
+    """GB/s of bandwidth per GiB of capacity -- the single-user speed proxy.
+
+    A card with more capacity but less bandwidth decodes a large model slower
+    while holding a smaller one; the ratio makes that trade-off visible.
+    """
+    rows = []
+    for hw, bw in HARDWARE:
+        caps = [int(t) for t in re.findall(r"(\d+)G(?!B)", hw)]
+        if not caps:
+            continue
+        cap = caps[0]
+        rows.append({"hardware": hw, "gib": cap, "bw_gbs": bw, "bw_per_gib": round(bw / cap, 1)})
+    return rows
+
+
+def ups_energy_wh(watts: float, minutes: float) -> float:
+    """Energy the UPS must deliver to ride through `minutes` at `watts`."""
+    return watts * minutes / 60
+
+
+def psu_headroom(peak_w: float, psu_w: float) -> float:
+    """How many times the measured peak the PSU can supply."""
+    return psu_w / peak_w
 
 
 def _print_table(title: str, headers: list[str], rows: list[list]) -> None:
