@@ -429,7 +429,9 @@ def test_d4_1_inequalities_in_the_tier_table_actually_hold():
 
     # the claims that decide each tier
     assert lora8 < usable["32G"]
-    assert qlora32 < usable["32G"]  # "just fits", hence the 5.4 GiB caveat
+    # 32B QLoRA's 24 GiB excludes activations, so the 5.4 GiB left on a 32 GB
+    # card is not a fit -- the document deliberately does not promise it.
+    assert qlora32 < usable["32G"]
     assert usable["32G"] - qlora32 < 6
     assert qlora32 < usable["48G"]
     assert full32 > usable["48G"] and full32 > usable["8x48G"]
