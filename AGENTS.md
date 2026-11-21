@@ -30,7 +30,8 @@ generate reference values in the verification tests, never at runtime.
 
 `-o addopts=""` is needed to see the pass/fail counts: `addopts = "-q"` in
 `pyproject.toml` suppresses the summary line, so a green run prints only dots
-and an `EXIT=0`. Current state: **143 passed, 1 skipped**, ~6.5 min.
+and an `EXIT=0`. Current state (dev extra only, no FastAPI/matplotlib):
+**182 passed, 11 skipped**, ~8 min.
 
 ## Releasing
 
@@ -93,8 +94,9 @@ configs/         default.yaml
 tests/           unit/ integration/ verification/
 examples/        projects/ (cases), notebooks/, run_case.py
 scripts/         build_thermo_db.py, build_schema.py, sensitivity.py,
-                 gen_verification_results.py
-docs/            plan, architecture.md, theory/, user_guide/, verification/
+                 gen_verification_results.py, llm_sizing.py
+docs/            plan, architecture.md, theory/, user_guide/, verification/,
+                 llm_agent/ (offline domain-LLM deployment plan)
 ```
 
 ## Conventions and gotchas
@@ -281,10 +283,38 @@ docs/            plan, architecture.md, theory/, user_guide/, verification/
   rather than importing them, or they pass locally (fastapi installed) and fail
   in CI. `tests/unit/test_cli_launch.py` has a `fake_web` fixture for this.
 
+## Offline LLM deployment plan
+
+`docs/llm_agent/离线SRM领域AI智能体部署方案.md` is a hardware + phased plan for
+running a domain agent on air-gapped hardware. Every capacity/throughput number in
+it comes from `scripts/llm_sizing.py` (`kv_bytes_per_token`, `decode_tok_s`,
+`table_model_sizes/decode/fit/concurrency/training`), and
+`tests/unit/test_llm_sizing.py` pins the formulas *and* parses the §3.2 / §3.3 /
+§8.2 / §9.4 tables out of the document, so the two cannot drift apart. Change a constant or a
+table cell and the test fails: re-issue the document instead of editing numbers by
+hand.
+
+Three things in that script are deliberate and should not be "simplified":
+
+- **`table_fit` ranks by context first, precision second.** Ranking precision
+  first reports "FP16 @16k" for a 24 GB card when "FP8 @32k" also fits, hiding the
+  context the card can actually reach.
+- **Decode throughput charges MoE only its active parameters** (`p_act`), because
+  bandwidth-bound decode streams the active experts, not the whole 30B. That is
+  why 30B-A3B reads faster than a dense 8B.
+- **Training hours divide by GPU count** for the `H100 x8` row. The script assumes
+  ideal linear scaling; the document states the 2-3x FSDP communication penalty
+  separately, so the two are not in conflict.
+
+The document's own guardrails (no external service at runtime, `srm_open` as the
+only source of numbers, RAG for facts and adapters for phrasing) are the reason it
+fits this repo: the engine already produces `verification.checks` and
+`Provenance.input_hash`, which the plan reuses as the audit trail.
+
 ## Verification status
 
-All of `tests/` passes (195 tests: unit + integration + verification +
-performance). The REST and 3-D preview suites `importorskip` FastAPI /
+All of `tests/` passes (191 collected: 182 pass, 11 skip with only the `dev`
+extra installed). The REST and 3-D preview suites `importorskip` FastAPI /
 matplotlib, so they skip rather than fail when the optional extras are absent. V&V cases (V1–V9) and their recorded results are in
 `docs/verification/verification_report.md`: thermochemistry vs Cantera (<0.1%),
 nozzle isentropic identities, tube geometry closed forms, two-channel burn-area

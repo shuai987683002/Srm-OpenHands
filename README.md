@@ -188,6 +188,9 @@ dist/srm inverse --family star --outer-diameter 0.15 --thrust 5000 --burn-time 3
 - 校核报告：[docs/verification/verification_report.md](docs/verification/verification_report.md)
 - 需求合规矩阵（FR/NFR 逐条证据）：[docs/requirements_compliance.md](docs/requirements_compliance.md)
 - 打包与分发：[docs/packaging.md](docs/packaging.md)
+- 离线领域 AI 智能体（硬件选型 + 分阶段部署 + 训练/评测方案）：
+  [docs/llm_agent/离线SRM领域AI智能体部署方案.md](docs/llm_agent/离线SRM领域AI智能体部署方案.md)
+  （数值由 `scripts/llm_sizing.py` 生成，`tests/unit/test_llm_sizing.py` 防漂移）
 - 贡献规范：[CONTRIBUTING.md](CONTRIBUTING.md)
 
 > 免责声明：本仓库及文档由 AI 辅助整理（OpenHands），仅用于学习与交流。
