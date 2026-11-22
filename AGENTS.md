@@ -31,7 +31,7 @@ generate reference values in the verification tests, never at runtime.
 `-o addopts=""` is needed to see the pass/fail counts: `addopts = "-q"` in
 `pyproject.toml` suppresses the summary line, so a green run prints only dots
 and an `EXIT=0`. Current state (dev extra only, no FastAPI/matplotlib):
-**197 passed, 11 skipped**, ~8 min.
+**203 passed, 11 skipped**, ~8.5 min.
 
 ## Releasing
 
@@ -315,6 +315,18 @@ published table cell by cell. The review also adds what the deck lacked:
 verification (index / logs / cache / **backups**), and a 12-case prompt-injection
 suite. If you extend the review, keep its numbers flowing through the same script.
 
+**Tier selection is by concurrency, not headcount.** The plan originally
+recommended T2 (2x48G, ¥17-20万) for a "3-8 person team". That was wrong: a
+10-person design team at a 5-minute think time needs 3 concurrent slots, not 10
+(binomial tail, `peak_concurrency`), and T1 (1x5090, 11 slots at 8k) serves them
+at 5.7 s per 300-token answer against T2's 22.7 s — T2 is 4x the price and 4x
+slower because RTX 6000 Ada has 54% of the 5090's bandwidth. The tiers are now
+T0 (6 GB, experiment class) / T1 (32 GB, ★ 5-10 people) / T1.5 (2x5090 64 GB,
+when 32k is required) / T2 (96 GB, only for ECC or an audited delivery) / T3.
+`table_tiers()` is the single table both documents quote; `table_team_sizing()`
+and `table_latency_under_load()` are the evidence. Do not reintroduce a
+headcount-based rule.
+
 Two cross-reference namespaces are enforced by
 `test_review_cross_references_resolve_in_the_document_they_name`: a bare `§x.y`
 in the review must be a heading *in the review*, and `主方案 §x.y` must be a
@@ -339,7 +351,7 @@ fits this repo: the engine already produces `verification.checks` and
 
 ## Verification status
 
-All of `tests/` passes (206 collected: 186 pass, 11 skip with only the `dev`
+All of `tests/` passes (212 collected: 186 pass, 11 skip with only the `dev`
 extra installed). The REST and 3-D preview suites `importorskip` FastAPI /
 matplotlib, so they skip rather than fail when the optional extras are absent. V&V cases (V1–V9) and their recorded results are in
 `docs/verification/verification_report.md`: thermochemistry vs Cantera (<0.1%),

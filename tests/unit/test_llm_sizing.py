@@ -205,7 +205,7 @@ def _wan_range(cell: str) -> tuple[float, float]:
 
 def test_bom_line_items_add_up_to_the_quoted_totals():
     """§3.6's 小计 column must sum to the 合计 row, in both bounds."""
-    for section in ("**T1 档（POC", "**T2 档（推荐落地"):
+    for section in ("**T1 档（POC", "**T1.5 档（团队档", "**T2 档（精度/审计档"):
         rows = _doc_table(section, 5)
         total_row = next(c for c in rows if "合计" in c[0])
         lo = hi = 0.0
@@ -421,7 +421,7 @@ def test_d4_1_inequalities_in_the_tier_table_actually_hold():
     full32 = 32.8 * 16  # AdamW, 16 bytes per parameter
     assert round(full32, 1) == 524.8
 
-    rows = _doc_table("### 8.4 决策点 D4-1", 4)
+    rows = _doc_table("### 8.4 决策点 D4-1", 5)
     text = " ".join(c for cells in rows for c in cells)
     pairs = re.findall(r"(\d+(?:\.\d+)?)\s*([<>])\s*(\d+(?:\.\d+)?)", text)
     assert len(pairs) >= 6, pairs
@@ -617,3 +617,108 @@ def test_review_and_main_plan_share_one_number_source():
     for doc in (MAIN_DOC, REVIEW_DOC):
         text = doc.read_text(encoding="utf-8")
         assert "scripts/llm_sizing.py" in text, doc.name
+
+
+# --- team sizing (5-10 designers) -------------------------------------------
+
+
+def test_concurrency_is_far_below_headcount_for_a_design_team():
+    """The tier recommendation turns on this: 10 users need 2-3 slots, not 10.
+
+    A design team reads each answer for minutes.  Concurrency is the binomial
+    tail, so a 10-person team at a 5-minute think time needs 3 slots -- which is
+    why T1 (11 slots at 8k) is the right tier and T2 is not.
+    """
+    m = _load()
+    rows = {(r["users"], r["think_min"]): r["slots_p95"] for r in m.table_team_sizing()["rows"]}
+    assert rows[(5, 10)] == 1
+    assert rows[(5, 5)] == 2
+    assert rows[(10, 10)] == 2
+    assert rows[(10, 5)] == 3
+    assert rows[(10, 3)] == 4
+    assert rows[(10, 2)] == 5
+    # monotone in both directions, and never above headcount
+    for (n, t), slots in rows.items():
+        assert 0 < slots <= n, (n, t, slots)
+    assert m.active_fraction(30.0, 5.0) == 0.1
+
+
+def test_ten_users_fit_in_t1_but_t2_is_slower():
+    """The review's claim: for 5-10 users T2 is 4x the price and 4x slower."""
+    m = _load()
+    rows = {
+        (r["tier"], r["model"], r["ctx"], r["batch"]): r
+        for r in m.table_latency_under_load()["rows"]
+    }
+    t1 = rows[("T1 32 GB", "Qwen3-30B-A3B", 8192, 3)]
+    t2 = rows[("T2 48 GB", "Qwen2.5-32B", 32768, 3)]
+    assert t1["s_300tok"] == 5.7
+    assert t2["s_300tok"] == 22.7
+    # the slower machine is the expensive one -- that is the whole finding
+    assert t2["s_300tok"] / t1["s_300tok"] > 3.5
+
+    # T1 at 8k carries the 3 slots a 10-person team needs
+    tiers = {(r["tier"], r["model"], r["ctx"]): r for r in m.table_tiers()["rows"]}
+    assert tiers[("T1 最小可用", "Qwen3-30B-A3B", 8192)]["slots"] >= 3
+    # ...but at 32k it does not, which is what T1.5 exists for
+    assert tiers[("T1 最小可用", "Qwen3-30B-A3B", 32768)]["slots"] < 3
+    assert tiers[("T1.5 团队档", "Qwen3-30B-A3B", 32768)]["slots"] >= 3
+
+
+def test_tier_table_covers_every_tier_and_keeps_both_names():
+    """T0/T1/T1.5/T2/T3 and the deck's 6/32/64/48/96 GB ladder are one table."""
+    m = _load()
+    rows = m.table_tiers()["rows"]
+    tiers = {r["tier"] for r in rows}
+    assert {"T0 实验课", "T1 最小可用", "T1.5 团队档", "T2 推荐落地", "T3 生产"} == tiers
+    labels = {r["deck_label"] for r in rows}
+    assert {"6 GB", "32 GB", "64 GB", "48 GB", "96 GB"} == labels
+    # every row must be internally consistent: fits <=> slots > 0
+    for r in rows:
+        assert r["fits"] == (r["total"] <= r["usable"]), r
+        if r["fits"]:
+            assert r["slots"] >= 0
+    # the 6 GB row needs llama.cpp's smaller overhead or it would not fit
+    t0 = next(r for r in rows if r["tier"] == "T0 实验课")
+    assert t0["runtime"] == "llama.cpp" and t0["overhead"] == 1.0
+    assert t0["fits"] is True
+
+
+def test_two_card_tier_accounts_for_pcie_all_reduce():
+    """No NVLink on 5090: two cards do not double decode speed."""
+    m = _load()
+    assert m.TP_EFF < 1.0
+    tiers = {(r["tier"], r["model"], r["ctx"]): r for r in m.table_tiers()["rows"]}
+    one = tiers[("T1 最小可用", "Qwen3-30B-A3B", 32768)]
+    two = tiers[("T1.5 团队档", "Qwen3-30B-A3B", 32768)]
+    assert two["n_gpu"] == 2 and one["n_gpu"] == 1
+    # capacity doubles -> more slots; bandwidth does not -> less than 2x speed
+    assert two["slots"] > one["slots"]
+    assert two["tok_s"] < 2 * one["tok_s"]
+    assert 1.4 < two["tok_s"] / one["tok_s"] < 1.8
+
+
+def test_main_plan_recommends_by_concurrency_not_headcount():
+    """Guard the corrected D4-1 rule: T1 is the 5-10 person default, not T2."""
+    text = MAIN_DOC.read_text(encoding="utf-8")
+    assert "5–10 人团队的主力档" in text
+    assert "先按并发人数定档，不按人数头数定档" in text
+    # the superseded recommendation must be marked as such, not silently dropped
+    assert "上一版的错误" in text
+    # and the T1.5 tier must exist in both the tier table and the BOM
+    assert "T1.5 团队档" in text
+    assert "**T1.5 档（团队档" in text
+
+
+def test_documented_concurrency_table_matches_the_binomial_tail():
+    """§1.1.1's table is the算据 for choosing T1 over T2; it must be computed."""
+    m = _load()
+    rows = {(r["users"], r["think_min"]): r["slots_p95"] for r in m.table_team_sizing()["rows"]}
+    doc = _doc_table("| 人数 | 思考 10 min", 5)
+    assert len(doc) == 4, doc
+    for cells in doc:
+        n = int(cells[0].replace("*", ""))
+        for think, cell in zip((10, 5, 3, 2), cells[1:]):
+            want = rows[(n, think)]
+            got = int(cell.replace("*", ""))
+            assert got == want, (n, think, got, want)

@@ -25,6 +25,9 @@ import re
 GIB = 1024**3
 BW_EFF = 0.65  # fraction of peak HBM/DRAM bandwidth reachable in decode
 MFU = 0.35  # realistic single-node LoRA utilisation
+# Two cards on PCIe (no NVLink) lose a slice of their aggregate bandwidth to
+# all-reduce every layer; 0.8 is the conservative planning figure.
+TP_EFF = 0.80
 
 # name, total_params_B, active_params_B, layers, kv_heads, head_dim
 MODELS = [
@@ -293,6 +296,183 @@ def bandwidth_per_gib() -> list:
         cap = caps[0]
         rows.append({"hardware": hw, "gib": cap, "bw_gbs": bw, "bw_per_gib": round(bw / cap, 1)})
     return rows
+
+
+# --- team sizing ------------------------------------------------------------
+# Five to ten designers is a *small* population, and that matters: concurrency
+# is not "one slot per user", it is the number simultaneously mid-answer.  The
+# binomial tail says how many slots actually get used, which is usually far
+# fewer than the headcount.
+
+
+def active_fraction(service_s: float, think_min: float) -> float:
+    """Share of the time one user is waiting on the model."""
+    return service_s / (think_min * 60)
+
+
+def peak_concurrency(
+    n_users: int, service_s: float, think_min: float, p_block: float = 0.05
+) -> int:
+    """Smallest slot count c with P(more than c users active at once) <= p_block.
+
+    Independent users, each active with probability service/think -- a binomial
+    tail.  This is the number the GPU must hold; headcount overstates it badly
+    at small N.
+    """
+    p = active_fraction(service_s, think_min)
+    if p >= 1:
+        return n_users
+    for c in range(0, n_users + 1):
+        tail = sum(
+            math.comb(n_users, k) * p**k * (1 - p) ** (n_users - k)
+            for k in range(c + 1, n_users + 1)
+        )
+        if tail <= p_block:
+            return c
+    return n_users
+
+
+def table_team_sizing() -> dict:
+    """Slots needed for a design team, and the smallest tier that holds them.
+
+    Service time is a 512-token answer plus retrieval, from `decode_tok_s`; the
+    think time is how long a designer spends reading before asking again.
+    """
+    rows = []
+    for n_users in (5, 8, 10, 15, 20):
+        for think_min in (2, 3, 5, 10):
+            for ctx in (8192, 32768):
+                rows.append(
+                    {
+                        "users": n_users,
+                        "think_min": think_min,
+                        "ctx": ctx,
+                        "slots_p95": peak_concurrency(n_users, 30.0, think_min),
+                    }
+                )
+    return {"rows": rows, "service_s": 30.0}
+
+
+def table_tiers() -> dict:
+    """One vocabulary for the procurement table and the deck's GB ladder.
+
+    The plan used T1/T2/T3, the review used 6/32/48/96 GB.  They are the same
+    machines, so each row carries both names and the serving facts that decide
+    between them.
+    """
+    # Overhead is a *framework* constant, not a hardware one: vLLM/PyTorch needs
+    # ~2.5 GiB of CUDA context + activations, llama.cpp needs ~1.0.  On a 6 GB
+    # card that difference is the whole tier, so the 6 GB row must be llama.cpp.
+    cases = [
+        # (tier, deck label, gpu_gib, model, quant, ctx, bw, overhead, runtime)
+        ("T0 实验课", "6 GB", 6, "Qwen3-4B", "Q4_K_M", 8192, 336.0, 1.0, "llama.cpp"),
+        ("T1 最小可用", "32 GB", 32, "Qwen3-30B-A3B", "Q4_K_M", 8192, 1792.0, 2.5, "vLLM"),
+        ("T1 最小可用", "32 GB", 32, "Qwen3-30B-A3B", "Q4_K_M", 32768, 1792.0, 2.5, "vLLM"),
+        ("T1 最小可用", "32 GB", 32, "Qwen2.5-32B", "Q4_K_M", 16384, 1792.0, 2.5, "vLLM"),
+        (
+            "T1.5 团队档",
+            "64 GB",
+            64,
+            "Qwen3-30B-A3B",
+            "Q4_K_M",
+            32768,
+            2 * 1792.0 * TP_EFF,
+            2.5,
+            "vLLM",
+        ),
+        (
+            "T1.5 团队档",
+            "64 GB",
+            64,
+            "Qwen2.5-32B",
+            "Q4_K_M",
+            32768,
+            2 * 1792.0 * TP_EFF,
+            2.5,
+            "vLLM",
+        ),
+        ("T2 推荐落地", "48 GB", 48, "Qwen2.5-32B", "Q4_K_M", 32768, 960.0, 2.5, "vLLM"),
+        ("T2 推荐落地", "96 GB", 96, "Qwen2.5-32B", "Q4_K_M", 32768, 960.0, 2.5, "vLLM"),
+        ("T3 生产", "96 GB", 96, "Llama-3.3-70B", "Q4_K_M", 32768, 960.0, 2.5, "vLLM"),
+    ]
+    by_name = {m[0]: m for m in MODELS}
+    rows = []
+    for tier, deck, gpu, model, quant, ctx, bw, overhead, runtime in cases:
+        _n, params, _pa, layers, kvh, hd = by_name[model]
+        weight = params * QUANT[quant]
+        kv_per = kv_bytes_per_token(layers, kvh, hd)
+        kv = kv_per * ctx / GIB
+        n_gpu = 2 if gpu == 64 else 1
+        usable = n_gpu * (gpu // n_gpu) * 0.92
+        total = weight + kv + overhead * n_gpu
+        slots = max(0, int((usable - weight - overhead * n_gpu) / kv))
+        rows.append(
+            {
+                "tier": tier,
+                "deck_label": deck,
+                "gpu_gib": gpu,
+                "n_gpu": n_gpu,
+                "model": model,
+                "quant": quant,
+                "ctx": ctx,
+                "weights": round(weight, 1),
+                "kv": round(kv, 2),
+                "total": round(total, 1),
+                "usable": round(usable, 1),
+                "overhead": overhead,
+                "runtime": runtime,
+                "fits": total <= usable,
+                "slots": slots,
+                "tok_s": round(decode_tok_s(bw, weight, kv_per, ctx), 1),
+            }
+        )
+    return {"rows": rows}
+
+
+def decode_tok_s_batched(
+    bw_gbs: float, weight_gib: float, kv_per_tok: int, ctx: int, batch: int
+) -> float:
+    """Per-request decode rate when `batch` sequences share the bandwidth.
+
+    Weights are read once per step for the whole batch; KV is read per sequence,
+    so the cost is W + batch x KV.  This is why three simultaneous questions
+    cost each user less than 3x -- but not nothing.
+    """
+    per_step = weight_gib * GIB + batch * kv_per_tok * ctx
+    return bw_gbs * 1e9 * BW_EFF / per_step
+
+
+def table_latency_under_load() -> dict:
+    """Answer time for a designer at the 5-10 user p95 slot count.
+
+    A slot count alone says "it fits"; it does not say "it is fast enough".
+    """
+    by_name = {m[0]: m for m in MODELS}
+    rows = []
+    for tier, _gpu, model, quant, ctx, bw in (
+        ("T1 32 GB", 32, "Qwen3-30B-A3B", "Q4_K_M", 8192, 1792.0),
+        ("T1 32 GB", 32, "Qwen3-30B-A3B", "Q4_K_M", 32768, 1792.0),
+        ("T1 32 GB", 32, "Qwen2.5-32B", "Q4_K_M", 16384, 1792.0),
+        ("T2 48 GB", 48, "Qwen2.5-32B", "Q4_K_M", 32768, 960.0),
+        ("T2 96 GB", 96, "Qwen2.5-32B", "Q4_K_M", 32768, 960.0),
+    ):
+        _n, params, _pa, layers, kvh, hd = by_name[model]
+        weight = params * QUANT[quant]
+        kv_per = kv_bytes_per_token(layers, kvh, hd)
+        for batch in (1, 3):
+            rate = decode_tok_s_batched(bw, weight, kv_per, ctx, batch)
+            rows.append(
+                {
+                    "tier": tier,
+                    "model": model,
+                    "ctx": ctx,
+                    "batch": batch,
+                    "tok_s_each": round(rate, 1),
+                    "s_300tok": round(300 / rate, 1),
+                    "s_512tok": round(512 / rate, 1),
+                }
+            )
+    return {"rows": rows}
 
 
 def ups_energy_wh(watts: float, minutes: float) -> float:
