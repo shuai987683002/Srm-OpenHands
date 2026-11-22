@@ -239,12 +239,19 @@ def parse_blocks(md: str) -> list[tuple[str, object]]:
             i += 1
             continue
 
+        # image: ![caption](path) -- the caption is reused as the docx caption
+        m_img = re.match(r"^!\[([^\]]*)\]\(([^)]+)\)$", stripped)
+        if m_img:
+            blocks.append(("image", (m_img.group(2), m_img.group(1))))
+            i += 1
+            continue
+
         # paragraph: gather until a blank line or a new block marker
         para_lines = [stripped]
         i += 1
         while i < len(lines):
             nxt = lines[i].strip()
-            if (not nxt or nxt.startswith(("#", "|", ">", "```", "---"))
+            if (not nxt or nxt.startswith(("#", "|", ">", "```", "---", "!["))
                     or re.match(r"^[-*]\s+", nxt) or re.match(r"^\d+\.\s+", nxt)):
                 break
             para_lines.append(nxt)
@@ -375,6 +382,25 @@ def add_quote(doc: Document, text: str) -> None:
     add_inline(cell.paragraphs[0], text, size=9.5)
 
 
+def add_image(doc: Document, path: Path, caption: str, max_width_cm: float = 15.5) -> None:
+    """Insert a figure scaled to the text column, with its caption below.
+
+    A missing file is a hard error, not a silent skip: a report that quietly
+    drops its figures still reads fine, so nobody notices until review.
+    """
+    if not path.is_file():
+        raise FileNotFoundError(f"figure referenced by the document is missing: {path}")
+    para = doc.add_paragraph()
+    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = para.add_run()
+    run.add_picture(str(path), width=Cm(max_width_cm))
+    if caption:
+        cap = doc.add_paragraph()
+        cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        cap.paragraph_format.space_after = Pt(10)
+        add_inline(cap, caption, size=9)
+
+
 def build(md_path: Path, out_path: Path) -> Path:
     blocks = parse_blocks(md_path.read_text(encoding="utf-8"))
 
@@ -424,6 +450,10 @@ def build(md_path: Path, out_path: Path) -> Path:
             add_table(doc, header, rows)
         elif kind == "quote":
             add_quote(doc, payload)
+        elif kind == "image":
+            rel, caption = payload
+            # Markdown image paths are relative to the .md file, not to the cwd.
+            add_image(doc, (md_path.parent / rel).resolve(), caption)
         elif kind == "rule":
             doc.add_paragraph()
 
