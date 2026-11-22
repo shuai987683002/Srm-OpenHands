@@ -220,7 +220,7 @@ def fig_kv_growth() -> None:
     """
     fig, ax = plt.subplots(figsize=(6.4, 3.0))
     ctx = [1024 * i for i in range(1, 65)]
-    for name, p, p_act, layers, kvh, hd in ls.MODELS:
+    for name, _p, _p_act, layers, kvh, hd in ls.MODELS:
         if name == "Llama-3.3-70B":
             continue
         kv = ls.kv_bytes_per_token(layers, kvh, hd)
