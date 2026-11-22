@@ -1,0 +1,7 @@
+# Runtime python deps for the offline host (wheelhouse only; no build step).
+# Pinned: an offline machine cannot resolve a range, and an unpinned wheelhouse
+# silently drifts from what was tested.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+httpx==0.28.1
+PyYAML==6.0.2

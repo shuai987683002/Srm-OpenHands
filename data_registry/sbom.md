@@ -36,6 +36,7 @@ and compatible with this project's Apache-2.0 license.
 | pytest | 9.2.0 | MIT | test runner |
 | tomli | — | MIT | TOML parsing on Python 3.10 (`tomllib` is stdlib from 3.11); SBOM guard only |
 | pytest-cov | 7.1.0 | MIT | coverage measurement |
+| python-docx | 1.2.0 | MIT | builds the .docx report (`scripts/build_docx_report.py`); `dev` extra so the stale-report guard runs in CI |
 | ruff | — | MIT | linter |
 
 ## Data

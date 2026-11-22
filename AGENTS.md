@@ -30,7 +30,8 @@ generate reference values in the verification tests, never at runtime.
 
 `-o addopts=""` is needed to see the pass/fail counts: `addopts = "-q"` in
 `pyproject.toml` suppresses the summary line, so a green run prints only dots
-and an `EXIT=0`. Current state: **143 passed, 1 skipped**, ~6.5 min.
+and an `EXIT=0`. Current state (dev extra only, no FastAPI/matplotlib):
+**203 passed, 11 skipped**, ~8.5 min.
 
 ## Releasing
 
@@ -93,8 +94,9 @@ configs/         default.yaml
 tests/           unit/ integration/ verification/
 examples/        projects/ (cases), notebooks/, run_case.py
 scripts/         build_thermo_db.py, build_schema.py, sensitivity.py,
-                 gen_verification_results.py
-docs/            plan, architecture.md, theory/, user_guide/, verification/
+                 gen_verification_results.py, llm_sizing.py
+docs/            plan, architecture.md, theory/, user_guide/, verification/,
+                 llm_agent/ (offline domain-LLM deployment plan)
 ```
 
 ## Conventions and gotchas
@@ -281,10 +283,147 @@ docs/            plan, architecture.md, theory/, user_guide/, verification/
   rather than importing them, or they pass locally (fastapi installed) and fail
   in CI. `tests/unit/test_cli_launch.py` has a `fake_web` fixture for this.
 
+## Offline LLM deployment plan
+
+`docs/llm_agent/离线SRM领域AI智能体部署方案.md` is a hardware + phased plan for
+running a domain agent on air-gapped hardware. Every capacity/throughput number in
+it comes from `scripts/llm_sizing.py` (`kv_bytes_per_token`, `decode_tok_s`,
+`table_model_sizes/decode/fit/concurrency/training`), and
+`tests/unit/test_llm_sizing.py` pins the formulas *and* parses the §3.2 / §3.3 /
+§8.2 / §9.4 tables out of the document, so the two cannot drift apart. Change a constant or a
+table cell and the test fails: re-issue the document instead of editing numbers by
+hand.
+
+`tests/unit/test_llm_sizing.py` also enforces the document's **contract shape**:
+every phase chapter (P0–P9, chapters 4–13) must carry `###` subsections whose
+titles contain 输入 / 策略 / 决策点 / 回退, and §1.5 must stay a 10-row table with
+all five columns filled. The brief asks for those four things per phase, and a
+chapter that only mentions "回退" in a sentence gives the reader nothing to
+execute. Renaming a heading is fine; dropping the word is not.
+
+A second document sits beside it: `docs/llm_agent/附件方案评审与优化建议.md`, a
+page-by-page review of a 15-page deck (`离线专属大模型建设方案_含零基础实验课.pptx`)
+that proposed an 8-week "local model + RAG" prototype. It is the light-weight
+sibling: same number source, same phase contract, but scoped to a 10-week path.
+Its central finding is a statistical one — **a 30-question eval set resolves only
+±11.1 pp at 90%**, so the deck's plan to "compare 14B vs 32B on 30 questions and
+decide whether to fine-tune" cannot work. Distinguishing 90% from 80% needs 116
+paired / 199 unpaired questions; `table_eval_power()` computes this and
+`test_eval_power_numbers_quoted_in_the_review_are_reproducible` re-derives the
+published table cell by cell. The review also adds what the deck lacked:
+`level`+`project` tags on every document (no tag, no ingest), four-layer deletion
+verification (index / logs / cache / **backups**), and a 12-case prompt-injection
+suite. If you extend the review, keep its numbers flowing through the same script.
+
+**Tier selection is by concurrency, not headcount.** The plan originally
+recommended T2 (2x48G, ¥17-20万) for a "3-8 person team". That was wrong: a
+10-person design team at a 5-minute think time needs 3 concurrent slots, not 10
+(binomial tail, `peak_concurrency`), and T1 (1x5090, 11 slots at 8k) serves them
+at 5.7 s per 300-token answer against T2's 22.7 s — T2 is 4x the price and 4x
+slower because RTX 6000 Ada has 54% of the 5090's bandwidth. The tiers are now
+T0 (6 GB, experiment class) / T1 (32 GB, ★ 5-10 people) / T1.5 (2x5090 64 GB,
+when 32k is required) / T2 (96 GB, only for ECC or an audited delivery) / T3.
+`table_tiers()` is the single table both documents quote; `table_team_sizing()`
+and `table_latency_under_load()` are the evidence. Do not reintroduce a
+headcount-based rule.
+
+Two cross-reference namespaces are enforced by
+`test_review_cross_references_resolve_in_the_document_they_name`: a bare `§x.y`
+in the review must be a heading *in the review*, and `主方案 §x.y` must be a
+heading in the main plan. Use the prefix when you mean the other document.
+
+Three things in that script are deliberate and should not be "simplified":
+
+- **`table_fit` ranks by context first, precision second.** Ranking precision
+  first reports "FP16 @16k" for a 24 GB card when "FP8 @32k" also fits, hiding the
+  context the card can actually reach.
+- **Decode throughput charges MoE only its active parameters** (`p_act`), because
+  bandwidth-bound decode streams the active experts, not the whole 30B. That is
+  why 30B-A3B reads faster than a dense 8B.
+- **Training hours divide by GPU count** for the `H100 x8` row. The script assumes
+  ideal linear scaling; the document states the 2-3x FSDP communication penalty
+  separately, so the two are not in conflict.
+
+The document's own guardrails (no external service at runtime, `srm_open` as the
+only source of numbers, RAG for facts and adapters for phrasing) are the reason it
+fits this repo: the engine already produces `verification.checks` and
+`Provenance.input_hash`, which the plan reuses as the audit trail.
+
+### The implementation handbook (how to actually install it)
+
+The plan says *why*; `docs/llm_agent/离线部署实施手册.md` says *how*. It covers
+background, hardware, model download, environment, service start, tuning,
+monitoring, troubleshooting, a from-zero drill, acceptance and expected results,
+with two appendices. Every command, flag and default in it was executed against
+**llama.cpp b12627** (`225a5345b`) on Debian 13 / Python 3.13 — a 4-core x86-64
+box with **no GPU**. Anything GPU-specific is labelled 估算 and §2.6 says how to
+replace it with a measurement; `test_handbook_does_not_claim_gpu_measurements`
+fails if that labelling is dropped.
+
+Findings worth keeping (each cost a real debugging session):
+
+- **`--port` defaults to 9931, not 8080** in b12627, and **`--jinja` is already
+  on by default.** Documenting the wrong default sends an operator to a port
+  nothing listens on.
+- **`llamacpp:kv_cache_usage_ratio` does not exist.** Alerts were written against
+  it, which is a silently dead rule. Saturation is
+  `n_busy_slots_per_decode` (read 3.80 on a 4-slot server under 4-way load).
+  `test_alerts_only_reference_metrics_llamacpp_actually_exposes` parses only the
+  `expr:` lines, so a comment may still name the absent metric.
+- **`/health` and `/metrics` answer without an API key while `/v1/*` returns
+  401.** `/health` is therefore a valid liveness probe; `/metrics` must not be
+  exposed beyond the host.
+- **The 0.5B smoke model gets 比冲 wrong** ("单位时间内通过单位面积的流体体积").
+  It is quoted verbatim in §4.6 as the standing argument for RAG + engine-sourced
+  numbers: a fluent wrong answer is the failure mode this whole stack exists to
+  prevent.
+- **A missing hash must block startup, not warn.** `run-server.sh` exits 65 via
+  `verify_models.py`; serving a truncated GGUF yields fluent nonsense.
+  `verify_bundle.py` also fails on *extra* files — a planted file is exactly the
+  one nobody lists.
+- **`bin-ubuntu-x64` runs on Debian 13** even though a `bin-ubuntu-26.04` asset
+  exists. Pick the generic build, not the one matching a distro name.
+- **Q4_K_M is 0.567–0.571 GiB/B, not the script's 0.606** (Qwen3-8B 4.68 GiB,
+  30B-A3B 17.28 GiB, 32B 18.49 GiB across 5 shards). The script over-estimates
+  by ~6.5%, which is the safe direction; do not "fix" it downward without also
+  updating the fit tables.
+- **CPU efficiency does not transfer to GPU** (0.27 measured on a 0.5B model vs
+  the script's 0.65). Re-run `calibrate_sizing.py` on the real card before
+  quoting any throughput.
+
+`deploy/` holds the assets: `config/{models,server}.yaml`,
+`config/requirements-offline.txt`, `scripts/{verify_models,verify_bundle,fetch_models,render_env,healthcheck,calibrate_sizing}.py`,
+`scripts/{run-server.sh,build_offline_bundle.sh}`, `systemd/srm-llm.service`,
+`monitoring/{prometheus,alerts}.yml`. `tests/unit/test_offline_deployment_docs.py`
+pins them to the handbook: every YAML key `run-server.sh` consumes must still be
+rendered by `render_env.py`, every `--flag` the handbook quotes must be one the
+launcher passes (or be on the explicit exempt list for pip/curl/bench), and each
+stage chapter must still carry 输入 / 策略 / 决策点 / 回退.
+
+### The Word report is generated, never hand-edited
+
+`docs/llm_agent/reports/SRM领域离线大模型部署方案报告.docx` is built from the
+handbook by `scripts/build_docx_report.py` (`python-docx`, a build-time tool —
+not a runtime dependency). It renders cover, a live `TOC` field, styled
+headings/tables/code blocks, and a header + `PAGE` footer.
+`test_committed_report_is_not_stale` compares **level-2 and level-3** headings:
+comparing level 2 alone let a new subsection slip through, because adding `###`
+under an existing `##` leaves the level-2 set unchanged. Regenerate after any
+handbook edit:
+
+```bash
+python3 scripts/build_docx_report.py     # writes into docs/llm_agent/reports/
+```
+
+The report must not be written under `output/` — that path is gitignored, so the
+deliverable would never reach anyone. The TOC is a field, not static text:
+writing page numbers at build time makes them wrong the first time anyone edits
+the file.
+
 ## Verification status
 
-All of `tests/` passes (195 tests: unit + integration + verification +
-performance). The REST and 3-D preview suites `importorskip` FastAPI /
+All of `tests/` passes (227 collected: 216 pass, 11 skip with only the `dev`
+extra installed). The REST and 3-D preview suites `importorskip` FastAPI /
 matplotlib, so they skip rather than fail when the optional extras are absent. V&V cases (V1–V9) and their recorded results are in
 `docs/verification/verification_report.md`: thermochemistry vs Cantera (<0.1%),
 nozzle isentropic identities, tube geometry closed forms, two-channel burn-area

@@ -42,6 +42,9 @@ dev = [
   "scikit-image>=0.22",
   # tomllib is stdlib only from 3.11; the SBOM guard reads pyproject.toml
   "tomli>=2.0; python_version < '3.11'",
+  # builds the .docx report; test_offline_deployment_docs imports it, and a
+  # skipped import would silently disable the stale-report guard
+  "python-docx>=1.1",
 ]
 all = [
   "matplotlib>=3.7", "cadquery>=2.4", "scikit-image>=0.22",

@@ -22,7 +22,7 @@ PYTHONPATH=src pytest -m performance -q -s    # NFR-3 性能预算
 |---|---|---|---|---|
 | FR-1 | 输入总体指标并校验一致性 | `models/requirements.py`、`orchestration/requirements.py` | 5 项 `test_requirements_*`：补全 I_t / m_p、冲突不覆盖、自由度提示、F vs F_avg 提示 | ✅ |
 | FR-2 | 由指标生成参数化药型（选型+初值+几何） | `orchestration/synthesis.py`、`api/facade.py:design_forward` | `examples/projects/06_synthesis_star`、`07_synthesis_tube`（9/9 校核通过） | ✅ |
-| FR-3 | 由几何/燃面/弹道要求反推参数 | `inverse/design.py`、`inverse/fit.py`、`inverse/identify.py` | 路径 A/A'/B/C 四组用例；V7（轮廓往返）、V8（可辨识性）；`examples/projects/08_inverse_identifiability` | ✅ |
+| FR-3 | 由几何/燃面/弹道要求反推参数 | `inverse/design.py`（`fit_outline` / `fit_burn_area` / `inverse_design` / `sensitivity_matrix`）、`inverse/optimize.py` | 路径 A/A'/B/C 四组用例；V7（轮廓往返）、V8（可辨识性）；`examples/projects/08_inverse_identifiability` | ✅ |
 | FR-4 | 推进剂与喷管参数管理（数据字典驱动） | `propellant/database.py`、`data/propellants/*.yaml`、`nozzle/model.py` | 4 项 `test_propellant_db_*`（YAML 往返、用户增删、未知 id 报错、来源必填）；喷管用例 `test_exit_mach_*`/`test_thrust_coefficient_*` | ✅ |
 | FR-5 | 燃面演化：几何解析 + Level-Set 双通道互校 | `burnback/geometric.py`、`burnback/levelset.py`、`burnback/engine.py:crosscheck` | V4（`test_v4_burnback_crosscheck`，多药型参数化，最大偏差 < 8%） | ✅ |
 | FR-6 | 零维平衡压强内弹道（含余药阶段） | `ballistics/solver.py` | V6（平衡压强闭式解 + 质量守恒残差 ~1e-15）；`test_core.py` 求解器用例 | ✅ |

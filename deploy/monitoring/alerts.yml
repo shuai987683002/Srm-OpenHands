@@ -1,0 +1,83 @@
+# Alert rules. Each one names the failure it catches and the first thing to try.
+# Thresholds are derived from the T1 sizing (see scripts/llm_sizing.py):
+#   parallel 8, ctx 8192, 3 slots needed for 10 designers at a 5-minute think time.
+groups:
+  - name: srm-llm-availability
+    rules:
+      - alert: LlamaServerDown
+        expr: up{job="llama-server"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "llama-server 不在线"
+          runbook: "systemctl status srm-llm; journalctl -u srm-llm -n 100; 先看是否 OOM"
+
+      - alert: LlamaServerNotReady
+        # The process can be up while the model is gone (post-OOM). /health is
+        # open without auth, so this probe works even when keys are misconfigured.
+        expr: probe_success{job="blackbox-llama-health"} == 0
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "llama-server 进程在但 /health 不返回 ok"
+          runbook: "curl -s 127.0.0.1:8080/health; 检查日志中的 'failed to load model'"
+
+  - name: srm-llm-capacity
+    rules:
+      - alert: QueueBuildingUp
+        # requests_deferred > 0 means callers are waiting for a free slot: the
+        # concurrency budget is exhausted, not that the model is slow.
+        expr: llamacpp:requests_deferred > 0
+        for: 3m
+        labels: {severity: warning}
+        annotations:
+          summary: "有请求在排队（槽位已满）"
+          runbook: "调大 --parallel（受显存限制）或降 --ctx-size；见手册 §6.2"
+
+      - alert: SlotsSaturated
+        # llama.cpp b12627 exposes no kv_cache_usage_ratio; the real saturation
+        # signal is n_busy_slots_per_decode (mean busy slots per decode step),
+        # which approaches --parallel when every slot is occupied. Measured 3.80
+        # on a --parallel 4 server under a 4-way probe.
+        expr: llamacpp:n_busy_slots_per_decode >= 0.95 * 8
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "解码时平均占用槽位接近 --parallel"
+          runbook: "调大 --parallel（受显存限制），或启用 --cache-type-k/v q8_0 释放显存"
+
+      - alert: NoThroughputWhileBusy
+        # Processing requests with zero predicted tokens over 5 minutes is a
+        # stuck decode loop, not a slow one.
+        expr: rate(llamacpp:tokens_predicted_total[5m]) == 0 and llamacpp:requests_processing > 0
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "有请求在处理但 5 分钟没有产出 token"
+          runbook: "抓 py-spy dump；检查是否卡在显存交换（GPU util 100% 但 HBM 带宽低）"
+
+  - name: srm-llm-host
+    rules:
+      - alert: GpuMemoryHigh
+        expr: DCGM_FI_DEV_FB_USED / DCGM_FI_DEV_FB_TOTAL > 0.95
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "显存占用 > 95%"
+          runbook: "降 --parallel 或 ctx；确认没有第二个进程占用显存"
+
+      - alert: GpuTooHot
+        expr: DCGM_FI_DEV_GPU_TEMP > 83
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "GPU 温度 > 83 °C，将触发降频"
+          runbook: "查风道/风扇曲线；5090 在 83 °C 以上会掉 boost，吞吐直接下降"
+
+      - alert: DiskFillingUp
+        expr: node_filesystem_avail_bytes{mountpoint="/srv"} / node_filesystem_size_bytes{mountpoint="/srv"} < 0.1
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "/srv 剩余 < 10%"
+          runbook: "清理旧快照；索引与日志分离存放"

@@ -24,7 +24,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,viz]"
       - name: Lint
-        run: ruff check src tests scripts
+        run: ruff check src tests scripts deploy/scripts
       - name: Dataset schemas are up to date
         # Regenerating must be a no-op; a diff means a model changed without
         # re-running scripts/build_schema.py and the committed schema is now a lie.
