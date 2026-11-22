@@ -420,10 +420,51 @@ deliverable would never reach anyone. The TOC is a field, not static text:
 writing page numbers at build time makes them wrong the first time anyone edits
 the file.
 
+### Figures and worked examples in the handbook
+
+The handbook is illustrated from `docs/llm_agent/figures/` (15 PNGs, relative
+links, so GitHub and the .docx resolve the same source). Regenerate with
+`python3 scripts/build_handbook_figures.py`, then place them with
+`python3 scripts/insert_handbook_figures.py` — the placer is **idempotent**
+(anchored on unique sentences, skips when the `(figures/...)` reference already
+exists) and `--check` exits 1 when a figure is missing, which is what CI uses.
+Do not hand-paste image blocks: the blank line before the image and after the
+heading matters, and the placer is the only thing that gets it consistently
+right.
+
+`build_docx_report.py` embeds images (parsed as `("image", (path, caption))`,
+resolved relative to the .md file, width capped at 15.5 cm) and raises
+`FileNotFoundError` on a missing file rather than silently skipping it — a
+report that quietly drops its figures still reads fine, so nobody notices.
+
+Four guard tests pin the illustration layer: every referenced figure exists,
+every PNG on disk is referenced (no orphans), every figure has a caption, and
+the committed .docx embeds ≥10 images.
+
+### Worked examples are executable, not illustrative
+
+Three helper scripts under `deploy/scripts/` exist so the handbook's examples can
+be re-run and asserted, not just read:
+
+- `demo_design_explain.py` — runs `srm_open` for a 5000 N / 3 s star grain, hands
+  the engine's own numbers to the local model, then **audits every decimal in
+  the answer** against the engine payload. Exit 1 on a fabricated number. The
+  auditor matches at the printed precision, not by prefix: `checks_passed = 9`
+  must not license a fabricated `9.500 MPa`.
+- `validate_corpus.py` — turns the six data red lines into exit 65.
+- `score_release.py` — computes the 9 mechanically-checkable of the 20 scoring
+  metrics and prints the other 10 as `not_measured`; a metric that was not
+  measured must never be reported as passing. A4 only applies when an
+  `engine_payload` exists (knowledge answers get their numbers from the cited
+  chunk), and D1 allows the rounding the answer actually shows.
+
+`test_worked_examples_are_present_and_reproducible` asserts the headings exist
+**and** the scripts exist, so the document cannot tell an operator to run a file
+that is not in the tree.
+
 ## Verification status
 
-All of `tests/` passes (227 collected: 216 pass, 11 skip with only the `dev`
-extra installed). The REST and 3-D preview suites `importorskip` FastAPI /
+All of `tests/` passes (240 collected: 232 pass, 8 skip in this container). The REST and 3-D preview suites `importorskip` FastAPI /
 matplotlib, so they skip rather than fail when the optional extras are absent. V&V cases (V1–V9) and their recorded results are in
 `docs/verification/verification_report.md`: thermochemistry vs Cantera (<0.1%),
 nozzle isentropic identities, tube geometry closed forms, two-channel burn-area

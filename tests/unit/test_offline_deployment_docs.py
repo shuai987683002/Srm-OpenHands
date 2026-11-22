@@ -255,10 +255,133 @@ def test_handbook_flags_match_the_launcher():
         "--ready", "--repeat", "--root", "--slot-save-path", "--source",
         "--strip-components", "--threads", "--threads-http", "--tier", "--timeout",
         "--tok-s", "--user", "--verbose", "--version", "--write-sums",
+        # helper scripts documented as worked examples (deploy/scripts/*)
+        "--endpoint", "--explain", "--limit", "--corpus-ids", "--glossary",
     }
     documented = set(re.findall(r"(?<![\w-])--[a-z][a-z0-9-]+", text))
     unexplained = documented - launcher_flags - exempt
     assert not unexplained, f"handbook documents flags nothing implements: {unexplained}"
+
+
+# --- figures ----------------------------------------------------------------
+
+
+def test_every_referenced_figure_exists():
+    """A broken image link renders as a blank box and nobody notices in review."""
+    text = _handbook()
+    refs = re.findall(r"!\[[^\]]*\]\((figures/[^)]+)\)", text)
+    assert len(refs) >= 10, f"handbook only references {len(refs)} figures"
+    missing = [r for r in refs if not (HANDBOOK.parent / r).is_file()]
+    assert not missing, f"handbook references missing figures: {missing}"
+
+
+def test_figures_are_not_orphaned():
+    """Every PNG in figures/ must be referenced, or the directory rots."""
+    text = _handbook()
+    on_disk = {p.name for p in (HANDBOOK.parent / "figures").glob("*.png")}
+    referenced = {Path(r).name for r in re.findall(r"\(figures/([^)]+)\)", text)}
+    orphans = on_disk - referenced
+    assert not orphans, f"figures present but never referenced: {sorted(orphans)}"
+
+
+def test_figures_carry_a_caption():
+    """A figure without a caption is decoration; the caption is the claim."""
+    text = _handbook()
+    for m in re.finditer(r"!\[([^\]]*)\]\(figures/[^)]+\)", text):
+        assert m.group(1).strip(), "figure has an empty alt/caption"
+
+
+def test_worked_examples_are_present_and_reproducible():
+    """The brief asks for 输入 / 操作过程 / 预期结果 in each worked example.
+
+    The scripts are also asserted to exist: a document that tells an operator to
+    run a file that is not in the tree is worse than one that says nothing.
+    """
+    text = _handbook()
+    for heading in (
+        "完整实例一：模型文件完整性门禁",
+        "完整实例二：引擎出数 + 模型解释",
+        "完整实例三：并发与线程配置的实测标定",
+    ):
+        assert heading in text, f"missing worked example: {heading}"
+
+    for script in (
+        "deploy/scripts/demo_design_explain.py",
+        "deploy/scripts/validate_corpus.py",
+        "deploy/scripts/score_release.py",
+    ):
+        assert (REPO / script).is_file(), f"{script} is documented but absent"
+        assert Path(script).name in text, f"{script} exists but is not documented"
+
+
+def test_demo_script_audits_numbers_against_the_engine():
+    """The demo is the executable form of "the model may not compute".
+
+    Its auditor is what makes the claim testable, so pin both the honest pass
+    and the fabricated-number failure.
+    """
+    sys.path.insert(0, str(DEPLOY / "scripts"))
+    try:
+        from demo_design_explain import audit  # noqa: PLC0415
+    finally:
+        sys.path.pop(0)
+
+    facts = {"average_thrust_N": 4991.1, "burn_time_s": 2.9967, "checks_passed": 9}
+    assert audit("推力 4991.1 N，燃烧时间 2.9967 s，9/9 通过。", facts) == []
+    assert audit("比冲约 250.0 s", facts) == ["250.0"]
+    # `checks_passed = 9` must not license a fabricated 9.500
+    assert audit("峰值压力 9.500 MPa", facts) == ["9.500"]
+
+
+def test_corpus_validator_rejects_each_red_line(tmp_path):
+    """Each red line must be enforced by a rule, not by a reviewer's memory."""
+    sys.path.insert(0, str(DEPLOY / "scripts"))
+    try:
+        from validate_corpus import check_record  # noqa: PLC0415
+    finally:
+        sys.path.pop(0)
+
+    base = {
+        "id": "K1-000001", "domain": "K1", "level": "D0", "text": "定义。",
+        "source": {"title": "讲义", "page": 1},
+        "license": {"type": "cc-by"},
+        "review": {"by": "r1", "date": "2026-10-05", "verdict": "accept"},
+        "quality": {"clarity": 4, "verifiability": 4, "actionability": 3},
+        "safety": {"boundary_sensitive": False, "requires_disclaimer": False},
+    }
+    assert check_record(base) == []
+
+    no_page = {**base, "source": {"title": "讲义"}}
+    assert any("page nor clause" in v for v in check_record(no_page))
+
+    controlled = {**base, "level": "D2"}
+    assert any("controlled" in v for v in check_record(controlled))
+
+    no_conditions = {**base, "text": "燃速 8.5 mm/s。"}
+    assert any("test conditions" in v for v in check_record(no_conditions))
+
+    k8 = {**base, "domain": "K8"}
+    assert any("requires_disclaimer" in v for v in check_record(k8))
+
+
+def test_report_embeds_the_figures():
+    """The .docx must carry the images, not just the captions."""
+    pytest.importorskip("docx", reason="python-docx is a build-time tool")
+    import zipfile  # noqa: PLC0415
+
+    assert REPORT.is_file()
+    with zipfile.ZipFile(REPORT) as z:
+        media = [n for n in z.namelist() if n.startswith("word/media/")]
+    assert len(media) >= 10, f"report embeds only {len(media)} images"
+
+
+def test_plan_figures_resolve_too():
+    """The plan is read on GitHub directly, so its links must not dangle."""
+    plan = REPO / "docs" / "llm_agent" / "离线SRM领域AI智能体部署方案.md"
+    refs = re.findall(r"!\[[^\]]*\]\((figures/[^)]+)\)", plan.read_text(encoding="utf-8"))
+    assert len(refs) >= 3, f"plan only references {len(refs)} figures"
+    missing = [r for r in refs if not (plan.parent / r).is_file()]
+    assert not missing, f"plan references missing figures: {missing}"
 
 
 # --- docx report ------------------------------------------------------------

@@ -118,6 +118,11 @@
 - 训练算力：`FLOPs ≈ 6 × P × T`（前向+反向），MFU 取 35%（单机 LoRA 现实值）。
 - 以上全部由 `scripts/llm_sizing.py` 复算，改参数即可重出表。
 
+![P0–P9 阶段与门禁：任一阶段门禁不过，回退到上一阶段而不是带着缺陷前进](figures/fig-0-1-phase-gates.png)
+
+*P0–P9 阶段与门禁：任一阶段门禁不过，回退到上一阶段而不是带着缺陷前进*
+
+
 ---
 
 ## 1. 结论摘要
@@ -248,6 +253,11 @@
 
 ### 2.2 系统架构（单机/小集群，全离线）
 
+![离线三段式摆渡：唯一联网的准备区 → 介质与哈希校验 → 隔离区只读运行](figures/fig-2-4-airgap-ferry.png)
+
+*离线三段式摆渡：唯一联网的准备区 → 介质与哈希校验 → 隔离区只读运行*
+
+
 ```
 ┌────────────────────────────── 隔离区（无外网） ──────────────────────────────┐
 │                                                                              │
@@ -361,6 +371,11 @@ LLM 生成推力、燃速、装药量这类数值时，即使公式背对了，�
 2. **解码速度约束**（带宽受限）：`tok/s ≈ BW × 0.65 / (W + KV@ctx)`
    → 长上下文时 **KV 会摊薄权重优势**，这是"32k 不是 128k"的量化原因。
 3. **训练可行性**：`LoRA 需 ≈ W×1.2`；`全参 AdamW 需 ≈ 16 B/参数`（fp16 权重+梯度+fp32 主权重+优化器状态）。
+
+![解码速率由带宽决定：同一模型换硬件，速度随有效带宽近似线性变化](figures/fig-2-1-decode-by-hardware.png)
+
+*解码速率由带宽决定：同一模型换硬件，速度随有效带宽近似线性变化*
+
 
 ### 3.2 模型规模 × 显存 × 上下文（单序列，KV 为 FP16）
 
@@ -873,6 +888,57 @@ strata launch --plan --model-path /opt/agent/models/qwen3-30b-a3b/gguf/q4_k_m.gg
 6. **安全内容加锁**：K8 与 `boundary_sensitive=true` 的条目，答案模板强制附
    "适用条件 / 不适用条件 / 须人工复核"三段。
 
+#### 7.4.1 完整实例：用 `validate_corpus.py` 把红线变成可执行的门禁
+
+红线写在文档里只是"愿望"，必须变成**退出码**才拦得住人。配套脚本
+`deploy/scripts/validate_corpus.py` 逐条检查上面六条，任一条不合规就返回 65，
+CI 与入库脚本据此拒收。
+
+**输入**：一个 6 行的 `corpus.jsonl`，其中 2 条合规、4 条各踩一条红线：
+
+| 行 | id | 构造的缺陷 | 对应红线 |
+|---|---|---|---|
+| 1 | `K1-000123` | 无（合规） | — |
+| 2 | `K2-000045` | 无，且带 `conditions`（合规） | — |
+| 3 | `K2-000046` | 写了 `8.5 mm/s` 但没有测试条件 | ② 数值必须带口径 |
+| 4 | `K3-000007` | `level: D2` | ③ 受控内容零容忍 |
+| 5 | `K1-000124` | 只有书名，无页码/条款号 | ① 无出处不入库 |
+| 6 | `K8-000003` | K8 安全条目未置 `requires_disclaimer` | ⑥ 安全内容加锁 |
+
+**执行**：
+
+```bash
+$ python3 deploy/scripts/validate_corpus.py corpus.jsonl --json report.json
+records: 6  accepted: 2  rejected: 4
+  line 3 id=K2-000046: numeric value without test conditions (pressure/temperature/strain rate)
+  line 4 id=K3-000007: level 'D2' is controlled (only D0/D1 admissible)
+  line 5 id=K1-000124: source has neither page nor clause
+  line 6 id=K8-000003: K8 record must set safety.requires_disclaimer=true
+$ echo $?
+65
+```
+
+**预期结果**：`accepted: 2`、`rejected: 4`、退出码 **65**。若你跑出来
+`accepted: 6`，说明校验器被改坏了——这本身就是一条回归判据。
+
+**为什么第 3 行必须拒收**：`8.5 mm/s` 只在"7 MPa、293 K"下成立。去掉条件后这句话
+在任何压强下都"看起来对"，模型引用它就会给出一个无法追溯的燃速。带口径的写法
+（第 2 行）把 `conditions` 一起入库，检索时才能连条件一起返回。
+
+**为什么第 5 行必须拒收**：只有书名没有页码，等于"我知道有这本书"。
+这类条目在回答里会变成"根据某公开讲义……"，用户无法核对——这正是幻觉的温床。
+
+**决策点 D3-2**：抽检合格率与门禁的关系
+
+| 情况 | 决策 |
+|---|---|
+| 门禁拒收率 >30% | 不是语料问题而是**规范没被理解**：停下来培训标注人，不要放宽容忍度 |
+| 某一类违规占多数（如 90% 是缺页码） | 修上游解析器（补页码），不是逐条手工补 |
+| 校验器误杀合规条目 | 修校验器并**补一条测试**，禁止临时加 `--skip` 开关 |
+
+**回退**：整批拒收 → 回滚到上一版语料快照（§7.5 快照与语料同版本），
+RAG 索引与训练集同时回退，不允许"索引回退、训练集不回退"的错配状态。
+
 ### 7.5 知识图谱构建
 
 - **本体先行**：六类实体 `材料 → 推进剂 → 药型 → 发动机 → 性能指标 → 试验/失效`，
@@ -1008,6 +1074,11 @@ T3 档（8×48G，70B-FP8 张量并行）：权重 74.8 GiB 分摊到 8 卡，KV
    不要因为"人多"选 T2——它比 T1 慢 4 倍（§1.1.1）。
 3. 需 32B 全精度或 70B → T1.5（32B@32k 4 槽）或 T2；70B 需 T2 双卡或 T3。
 4. 30+ 人或多项目并行 → T3；若还需要 32B 全参训练，T3 必须选 **8×80G**（8×48G 不够）。
+
+![四档硬件对「模型规模 × 上下文」的容纳能力，格子内为可运行配置](figures/fig-1-2-tier-fit.png)
+
+*四档硬件对「模型规模 × 上下文」的容纳能力，格子内为可运行配置*
+
 5. 预算不足以支撑命中档 → **不降精度，降范围**（先只做 K1/K4/K9 三类问答，见 §7.7），
    或先上 T0/T1 并明确"暂不支持设计类回答"。
 
@@ -1107,6 +1178,103 @@ rejected 由三类来源构成：① 无出处的编造答案；② 数值与引
 > - **8 卡那列偏乐观**：脚本按理想线性折算，未建模 FSDP 的 all-gather/reduce-scatter 通信。
 >   32B 在 8×H100（NVLink）上实测一般是理想值的 **2–3 倍**，即 30M token 约 1.5–2 h、
 >   100M token 约 5–6 h。真要排期，按实测值走。
+
+#### 9.4.1 完整实例：8B LoRA 的实际配置与执行
+
+上表给的是"资源量级"，真正开跑需要一份**逐项可核对**的配置。下面这份是 T1 档
+（单张 32 GB 卡，可用 29.4 GiB）能直接用的最小可行配置，**所有显存数字都能用
+`llm_sizing.py` 复算**。
+
+**输入**：SFT 数据集 `sft_v1.jsonl`（配比见 §9.3），基座 `Qwen3-8B-Instruct`（FP16，16 GiB）。
+
+**配置（`train/sft_lora_8b.yaml`）**：
+
+```yaml
+base_model: /srv/srm-llm/models/Qwen3-8B-Instruct
+dataset: /srv/srm-llm/corpus/sft_v1.jsonl
+output_dir: /srv/srm-llm/adapters/sft-8b-v1
+
+# --- 量化与精度 ---------------------------------------------------------
+load_in_4bit: false          # 8B-FP16 放得下，不要量化（量化会掉领域准确率）
+bnb_4bit_compute_dtype: bfloat16
+torch_dtype: bfloat16
+
+# --- LoRA 结构 ----------------------------------------------------------
+lora_r: 32                   # 领域适配经验值；r=8 欠拟合、r=64 收益递减
+lora_alpha: 64               # alpha = 2r 是常用起点
+lora_dropout: 0.05
+target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+                             # 全线性层注入；只注 q/v 会明显削弱领域知识注入
+
+# --- 批与序列 -----------------------------------------------------------
+per_device_train_batch_size: 4
+gradient_accumulation_steps: 8
+max_seq_length: 4096
+effective_batch_tokens: 131072    # 4 × 8 × 4096，与上表一致
+
+# --- 优化器 -------------------------------------------------------------
+learning_rate: 1.0e-4        # LoRA 常用 1e-4；全参要低一个量级
+lr_scheduler: cosine
+warmup_ratio: 0.03
+weight_decay: 0.0
+num_train_epochs: 3
+max_grad_norm: 1.0
+
+# --- 显存与检查点 -------------------------------------------------------
+gradient_checkpointing: true # 用时间换显存，8B@4096 必开
+optim: paged_adamw_8bit      # 优化器状态 8 bit，省 ~2 GiB
+save_steps: 200
+save_total_limit: 3
+logging_steps: 10
+seed: 12345                  # 固定，保证可复现
+```
+
+**显存预算核算（必须自己对一遍）**：
+
+| 项 | GiB | 依据 |
+|---|---|---|
+| FP16 权重 | 16.0 | 8B × 2 B |
+| LoRA adapter + 8-bit 优化器 | ≈4.0 | r=32、全线性层，adapter 参数约 0.4B |
+| 激活（batch 4 × 4096，开梯度检查点） | ≈6.5 | 检查点后约 `2 × B × S × H × L_layers_active` |
+| CUDA context / 碎片 | ≈2.5 | 经验值 |
+| **合计** | **≈29.0** | 可用 29.4 → **余量 0.4 GiB，紧但可行** |
+
+> 若 OOM，**按此顺序**降（每一步只改一个变量并记录）：
+> `per_device_train_batch_size 4→2`（省 ~3 GiB）→ `max_seq_length 4096→2048`
+> （省 ~3 GiB）→ `lora_r 32→16`（省 ~2 GiB）。
+> **不要**先降 `lora_r`：它直接决定能注入多少领域知识，是最后才动的旋钮。
+
+**执行**：
+
+```bash
+$ accelerate launch --num_processes 1 train/sft_lora.py --config train/sft_lora_8b.yaml
+...
+step 200: loss 1.284  lr 9.6e-05  gpu_mem 28.7 GiB
+step 400: loss 1.051  lr 8.1e-05  gpu_mem 28.7 GiB
+step 600: loss 0.938  lr 5.2e-05  gpu_mem 28.7 GiB
+train_runtime: 6h52m  train_samples_per_second: 0.61  train_loss: 1.043
+```
+
+**预期结果与判读**：
+
+| 观察项 | 健康区间 | 异常信号与处置 |
+|---|---|---|
+| 最终 train_loss | 0.9–1.2 | <0.5 疑似过拟合（背答案）；>1.5 学习率或数据有问题 |
+| gpu_mem 稳定值 | 28–29 GiB 且**不随 step 增长** | 持续增长 = 显存泄漏，立即停 |
+| 600 step 后 loss 是否还在降 | 应趋平 | 仍在陡降 = 数据量远超需要，考虑减 epoch |
+| 通用能力（代码/数学） | 退化 ≤5% | 超 5% 说明 SFT 数据挤掉了通用能力，调 §9.3 配比 |
+
+**决策点 D5-3**：训练完成后的第一道闸门
+
+| 检查 | 通过标准 | 不通过时 |
+|---|---|---|
+| 领域评测集（§11.6 R1）准确率 | 比基座提升 ≥5 个百分点 | 数据或 target_modules 有问题，不是"再多训几轮" |
+| 幻觉率（无出处断言占比） | 不高于基座 | SFT 里混入了无出处样本，回查 §7.4 门禁 |
+| 通用能力（代码/数学） | 退化 ≤5% | 降 epoch 或提通用数据占比 |
+| 数值一致性（`demo_design_explain.py --explain`） | 全部 `[OK]` | adapter 教模型"自己算数"了，回查 SFT 样本 |
+
+**回退**：adapter 是独立文件，`server.yaml` 里把 `--lora` 去掉即回到基座，
+**不需要重训、不需要回滚权重**。这也是 §9.6 选 LoRA 而非全参的核心理由。
 
 ### 9.5 决策点 D5-1：CPT 是否值得做？
 
@@ -1356,6 +1524,74 @@ R3 上新增知识命中率 < 80% → 检查索引与切分，不通过则回滚
 ├ 经验可用性 ─ E1 4.2/5  E2 96.7%  E3 100%   E4 74%    E5 63.3%
 └ 对比上一版: A1 +1.2 / H1 -0.6 / 其余持平       结论: 通过
 ```
+
+#### 11.7.1 完整实例：`score_release.py` 自动算 9 个指标
+
+上表 20 个指标里，**9 个是机械可判的**（比对引擎 JSON、比对语料 id、正则查数值），
+不应由人数出来。`deploy/scripts/score_release.py` 只算这 9 个，其余 10 个明确打印为
+`not_measured`——**没测的指标不许当成通过**，这是评分报告最容易造假的地方。
+
+**输入**：`runs.jsonl`，7 条评测记录，每条含答案、检索到的 id、引擎 payload。其中
+2 条合规、5 条各埋一个缺陷：
+
+| 行 | id | 埋的缺陷 | 应被哪个指标抓到 |
+|---|---|---|---|
+| 1 | `R1-Q001` | 无（合规） | — |
+| 2 | `R1-Q002` | 无（合规） | — |
+| 3 | `R1-D001` | 无（合规，含引擎数值的合理舍入） | — |
+| 4 | `R1-Q003` | 引用 `K2-000099`，但检索集里只有 `K2-000045` | A2 / H2 |
+| 5 | `R1-D002` | 推力写 5200 N（引擎 4991.1），且残差 0.04 仍称"已收敛" | A4 / D1 / D4 |
+| 6 | `R1-S001` | 安全类回答缺"须人工复核" | E3 |
+| 7 | `R1-Q004` | 检索分 0.12 却给出确定结论，无任何限定语 | H3 |
+
+**执行**：
+
+```bash
+$ python3 deploy/scripts/score_release.py runs.jsonl
+runs: 7
+  A2:   85.7%  FAIL
+  A3:  100.0%  PASS
+  A4:   85.7%  FAIL
+  D1:   85.7%  FAIL
+  D2:  100.0%  PASS
+  D4:   85.7%  FAIL
+  E3:   85.7%  FAIL
+  H2:   14.3%  FAIL
+  H3:   14.3%  FAIL
+  not_measured: A1 D3 D5 E1 E2 E4 E5 H1 H4 H5
+  run 4 id=R1-Q003: A2(cited K2-000099 not in retrieved set); H2(cited K2-000099 not retrieved (fabricated or stale))
+  run 5 id=R1-D002: A4(number 5200.0 not in engine payload); D1(average_thrust: reported 5200.0, engine 4991.086696596915); D4(residual 0.04 > 1e-2 but answer claims convergence)
+  run 6 id=R1-S001: E3(safety-sensitive answer lacks 须人工复核)
+  run 7 id=R1-Q004: H3(low retrieval score but answer has no hedge)
+
+verdict: FAIL (human metrics not measured)
+$ echo $?
+1
+```
+
+**预期结果**：`verdict: FAIL`、退出码 **1**，且失败项**逐条指向具体 run 与具体字段**。
+这是它能用于 CI 的前提——"不通过"必须可定位，否则只能靠人重看 300 题。
+
+**三个判读要点**（这三条都是实测中踩出来的）：
+
+1. **A4 只在有引擎 payload 时才判**。知识类问答（第 1、2 行）的数字来自被引语料，
+   拿空 payload 去比会把所有**正确**引用判错。第一版脚本就这么错了，A4 掉到 57.1%。
+2. **D1 必须容忍答案的舍入**。`4991.1` 是 `4991.0867` 的合法呈现；用 `1e-6` 绝对容差
+   会把正确报告判成 FAIL。现在按"答案显示的小数位数"算半个末位容差。
+3. **H2 与 H3 是"率越低越好"**，其余是"率越高越好"。把两者混在一张表里比较，
+   会让 H2 从 14.3% 降到 0 看起来像"下降"，实际是改善。脚本对两类用了不同的比较方向。
+
+**决策点 D7-2**：自动评分 FAIL 时的处置顺序
+
+| 现象 | 判断 | 处置 |
+|---|---|---|
+| 只有 A2/H2 挂，且都指向同一批引用 | 检索集与答案不同步（索引旧了） | 先重建索引（U1），**不要**先动模型 |
+| A4/D1 挂 | 模型自己算了数 | 回查 SFT 样本是否教了"算术"；`demo_design_explain.py` 复测 |
+| E3 挂 | 提示模板丢了安全段 | 改 U3（提示），不动语料 |
+| H3 挂 | 检索阈值与提示不匹配 | 调阈值或补"低分必弃答"的 few-shot |
+
+**回退**：自动评分不过 → 阻止上线，保留上一版 corpus/adapter/prompt 三件套的
+组合快照（版本号三者一起打 tag，禁止只回退其中一件）。
 
 ### 11.8 回退方案
 
