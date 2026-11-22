@@ -1,0 +1,40 @@
+# llama-server 运行参数（T1 档：1× RTX 5090 32G）
+#
+# 每一行都对应一个真实存在的 llama-server 开关，取值来自实测：
+#   python3 scripts/llm_sizing.py --json  -> table_tiers / table_team_sizing
+# 本文件被 deploy/scripts/render_env.py 渲染成 systemd 的 EnvironmentFile。
+#
+# 不要用 `--port` 的默认值：llama.cpp b12627 的默认端口是 9931，不是 8080。
+
+server:
+  host: 127.0.0.1          # 只监听本机；对外由反向代理暴露
+  port: 8080
+  alias: srm-primary       # /v1/models 里返回的 id，前端写死这个名字
+  api_key_file: /etc/srm-llm/api-keys.txt
+
+model:
+  path: /srv/srm-llm/models/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf
+  ctx_size: 8192           # 8k -> 11 槽；改 32768 会掉到 2 槽
+  parallel: 8              # 槽位数；留 3 个余量给峰值（10 人需 3 槽）
+  gpu_layers: 99           # 全部卸载到 GPU
+  flash_attn: auto
+  cache_type_k: q8_0       # KV 量化：显存紧张时 q8_0，精度优先用 f16
+  cache_type_v: q8_0
+  mlock: false             # 32 GB 显存 + 128 GB 内存，不需要锁页
+  jinja: true              # 默认已开；显式写出以免版本行为变化
+
+runtime:
+  threads: 8               # CPU 线程，仅影响 prompt 处理与采样
+  threads_http: 4
+  cont_batching: true
+  metrics: true            # 必须开，监控依赖 /metrics
+  log_file: /var/log/srm-llm/llama-server.log
+  timeout: 600
+  slot_save_path: /var/lib/srm-llm/slots
+
+# 档位换算（改硬件时按此表重算，勿凭感觉）
+tiers:
+  T0:   { gpu_gib: 6,  ctx: 8192,  parallel: 1,  overhead_gib: 1.0 }
+  T1:   { gpu_gib: 32, ctx: 8192,  parallel: 8,  overhead_gib: 2.5 }
+  T1.5: { gpu_gib: 64, ctx: 32768, parallel: 11, overhead_gib: 5.0 }
+  T2:   { gpu_gib: 96, ctx: 32768, parallel: 8,  overhead_gib: 5.0 }

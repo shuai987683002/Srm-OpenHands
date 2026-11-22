@@ -1,0 +1,47 @@
+[Unit]
+Description=SRM domain LLM inference server (llama.cpp)
+Documentation=file:///opt/srm-open/docs/llm_agent/离线部署实施手册.md
+After=network-online.target
+Wants=network-online.target
+# 显存被占满时不要反复重启把节点拖死
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=srmllm
+Group=srmllm
+WorkingDirectory=/opt/srm-open
+
+# 参数全部来自 EnvironmentFile，便于审计：改参数不用改 unit
+EnvironmentFile=/etc/srm-llm/server.env
+ExecStart=/opt/srm-open/deploy/scripts/run-server.sh
+
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=60
+KillSignal=SIGTERM
+
+# 资源边界
+LimitNOFILE=65536
+LimitMEMLOCK=infinity
+# 显存 OOM 时让进程被内核杀掉并留下记录，而不是拖死整机
+OOMPolicy=stop
+
+# 加固：服务只需要读模型、写日志
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/srm-llm /var/lib/srm-llm /srv/srm-llm
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=srm-llm
+
+[Install]
+WantedBy=multi-user.target

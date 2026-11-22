@@ -349,9 +349,80 @@ only source of numbers, RAG for facts and adapters for phrasing) are the reason 
 fits this repo: the engine already produces `verification.checks` and
 `Provenance.input_hash`, which the plan reuses as the audit trail.
 
+### The implementation handbook (how to actually install it)
+
+The plan says *why*; `docs/llm_agent/离线部署实施手册.md` says *how*. It covers
+background, hardware, model download, environment, service start, tuning,
+monitoring, troubleshooting, a from-zero drill, acceptance and expected results,
+with two appendices. Every command, flag and default in it was executed against
+**llama.cpp b12627** (`225a5345b`) on Debian 13 / Python 3.13 — a 4-core x86-64
+box with **no GPU**. Anything GPU-specific is labelled 估算 and §2.6 says how to
+replace it with a measurement; `test_handbook_does_not_claim_gpu_measurements`
+fails if that labelling is dropped.
+
+Findings worth keeping (each cost a real debugging session):
+
+- **`--port` defaults to 9931, not 8080** in b12627, and **`--jinja` is already
+  on by default.** Documenting the wrong default sends an operator to a port
+  nothing listens on.
+- **`llamacpp:kv_cache_usage_ratio` does not exist.** Alerts were written against
+  it, which is a silently dead rule. Saturation is
+  `n_busy_slots_per_decode` (read 3.80 on a 4-slot server under 4-way load).
+  `test_alerts_only_reference_metrics_llamacpp_actually_exposes` parses only the
+  `expr:` lines, so a comment may still name the absent metric.
+- **`/health` and `/metrics` answer without an API key while `/v1/*` returns
+  401.** `/health` is therefore a valid liveness probe; `/metrics` must not be
+  exposed beyond the host.
+- **The 0.5B smoke model gets 比冲 wrong** ("单位时间内通过单位面积的流体体积").
+  It is quoted verbatim in §4.6 as the standing argument for RAG + engine-sourced
+  numbers: a fluent wrong answer is the failure mode this whole stack exists to
+  prevent.
+- **A missing hash must block startup, not warn.** `run-server.sh` exits 65 via
+  `verify_models.py`; serving a truncated GGUF yields fluent nonsense.
+  `verify_bundle.py` also fails on *extra* files — a planted file is exactly the
+  one nobody lists.
+- **`bin-ubuntu-x64` runs on Debian 13** even though a `bin-ubuntu-26.04` asset
+  exists. Pick the generic build, not the one matching a distro name.
+- **Q4_K_M is 0.567–0.571 GiB/B, not the script's 0.606** (Qwen3-8B 4.68 GiB,
+  30B-A3B 17.28 GiB, 32B 18.49 GiB across 5 shards). The script over-estimates
+  by ~6.5%, which is the safe direction; do not "fix" it downward without also
+  updating the fit tables.
+- **CPU efficiency does not transfer to GPU** (0.27 measured on a 0.5B model vs
+  the script's 0.65). Re-run `calibrate_sizing.py` on the real card before
+  quoting any throughput.
+
+`deploy/` holds the assets: `config/{models,server}.yaml`,
+`config/requirements-offline.txt`, `scripts/{verify_models,verify_bundle,fetch_models,render_env,healthcheck,calibrate_sizing}.py`,
+`scripts/{run-server.sh,build_offline_bundle.sh}`, `systemd/srm-llm.service`,
+`monitoring/{prometheus,alerts}.yml`. `tests/unit/test_offline_deployment_docs.py`
+pins them to the handbook: every YAML key `run-server.sh` consumes must still be
+rendered by `render_env.py`, every `--flag` the handbook quotes must be one the
+launcher passes (or be on the explicit exempt list for pip/curl/bench), and each
+stage chapter must still carry 输入 / 策略 / 决策点 / 回退.
+
+### The Word report is generated, never hand-edited
+
+`docs/llm_agent/reports/SRM领域离线大模型部署方案报告.docx` is built from the
+handbook by `scripts/build_docx_report.py` (`python-docx`, a build-time tool —
+not a runtime dependency). It renders cover, a live `TOC` field, styled
+headings/tables/code blocks, and a header + `PAGE` footer.
+`test_committed_report_is_not_stale` compares **level-2 and level-3** headings:
+comparing level 2 alone let a new subsection slip through, because adding `###`
+under an existing `##` leaves the level-2 set unchanged. Regenerate after any
+handbook edit:
+
+```bash
+python3 scripts/build_docx_report.py     # writes into docs/llm_agent/reports/
+```
+
+The report must not be written under `output/` — that path is gitignored, so the
+deliverable would never reach anyone. The TOC is a field, not static text:
+writing page numbers at build time makes them wrong the first time anyone edits
+the file.
+
 ## Verification status
 
-All of `tests/` passes (212 collected: 186 pass, 11 skip with only the `dev`
+All of `tests/` passes (227 collected: 216 pass, 11 skip with only the `dev`
 extra installed). The REST and 3-D preview suites `importorskip` FastAPI /
 matplotlib, so they skip rather than fail when the optional extras are absent. V&V cases (V1–V9) and their recorded results are in
 `docs/verification/verification_report.md`: thermochemistry vs Cantera (<0.1%),

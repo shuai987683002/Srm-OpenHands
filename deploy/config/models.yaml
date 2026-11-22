@@ -1,0 +1,59 @@
+# 模型清单：部署的唯一真相源。
+# 校验命令：python3 deploy/scripts/verify_models.py --manifest deploy/config/models.yaml --root /srv/srm-llm
+# 每个文件必须带 sha256；缺失即视为"未通过完整性门禁"，服务不得启动。
+
+models:
+  # T1 档主模型：30B-A3B，MoE，激活仅 3.3B，8k 下 11 槽
+  - id: qwen3-30b-a3b-instruct-2507-q4km
+    tier: T1
+    role: primary
+    repo: unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF
+    files:
+      - name: Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf
+        size_gib: 17.28
+        sha256: ""          # 采集区填：见 docs/llm_agent/离线部署实施手册.md §3.3
+    ctx_default: 8192
+    ctx_max: 32768
+    quant: Q4_K_M
+    bytes_per_param: 4.53
+
+  # T0 实验课 / 冒烟模型：能跑通全链路的最小模型
+  - id: qwen2.5-0.5b-instruct-q4km
+    tier: T0
+    role: smoke
+    repo: Qwen/Qwen2.5-0.5B-Instruct-GGUF
+    files:
+      - name: qwen2.5-0.5b-instruct-q4_k_m.gguf
+        size_gib: 0.46
+        sha256: ""
+    ctx_default: 2048
+    ctx_max: 4096
+    quant: Q4_K_M
+    bytes_per_param: 4.60
+
+  # T1.5 档备选：32B 稠密，注意 Q4_K_M 是 5 片分片
+  - id: qwen2.5-32b-instruct-q4km
+    tier: T1.5
+    role: precision
+    repo: Qwen/Qwen2.5-32B-Instruct-GGUF
+    files:
+      - name: qwen2.5-32b-instruct-q4_k_m-00001-of-00005.gguf
+        size_gib: 3.69
+        sha256: ""
+      - name: qwen2.5-32b-instruct-q4_k_m-00002-of-00005.gguf
+        size_gib: 3.68
+        sha256: ""
+      - name: qwen2.5-32b-instruct-q4_k_m-00003-of-00005.gguf
+        size_gib: 3.72
+        sha256: ""
+      - name: qwen2.5-32b-instruct-q4_k_m-00004-of-00005.gguf
+        size_gib: 3.68
+        sha256: ""
+      - name: qwen2.5-32b-instruct-q4_k_m-00005-of-00005.gguf
+        size_gib: 3.72
+        sha256: ""
+    ctx_default: 32768
+    ctx_max: 32768
+    quant: Q4_K_M
+    bytes_per_param: 4.84
+    note: "分片必须全部就位，llama.cpp 只从第 1 片名推导其余分片"
