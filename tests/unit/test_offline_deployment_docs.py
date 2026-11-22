@@ -243,19 +243,18 @@ def test_handbook_flags_match_the_launcher():
     # pass: manual/foreground invocations, llama-bench, pip, curl, nvidia-smi,
     # systemctl and the helper scripts' own CLIs.
     exempt = {
-        "--now", "--python-version", "--only-binary", "--user", "--format",
-        "--loop", "--query-gpu", "--no-index", "--find-links", "--strip-components",
-        "--query", "--no-conversation", "--repeat", "--host", "--port",
-        "--version", "--help", "--model", "--verbose", "--no-mmap", "--mlock",
-        "--chat-template", "--ctx-size", "--port", "--host", "--parallel",
-        "--n-gpu-layers", "--metrics", "--cont-batching", "--jinja", "--alias",
-        "--cache-type-k", "--cache-type-v", "--flash-attn", "--threads",
-        "--api-key-file", "--api-key", "--threads-http", "--timeout",
-        "--log-file", "--slot-save-path", "--write-sums", "--check", "--bundle",
-        "--manifest", "--root", "--only", "--dest", "--out", "--tier", "--config",
-        "--source", "--json", "--ready", "--concurrency", "--model-gib",
-        "--tok-s", "--peak-bw-gbps", "--llama-tag", "--no-wheels", "--max-tokens",
-        "--port", "--query", "--bench", "--pass-through",
+        "--alias", "--api-key", "--api-key-file", "--bench", "--bundle",
+        "--cache-type-k", "--cache-type-v", "--chat-template", "--check",
+        "--concurrency", "--config", "--cont-batching", "--ctx-size", "--dest",
+        "--find-links", "--flash-attn", "--format", "--help", "--host", "--jinja",
+        "--json", "--llama-tag", "--log-file", "--loop", "--manifest", "--max-tokens",
+        "--metrics", "--mlock", "--model", "--model-gib", "--n-gpu-layers",
+        "--no-conversation", "--no-index", "--no-mmap", "--no-wheels", "--now",
+        "--only", "--only-binary", "--out", "--parallel", "--pass-through",
+        "--peak-bw-gbps", "--port", "--python-version", "--query", "--query-gpu",
+        "--ready", "--repeat", "--root", "--slot-save-path", "--source",
+        "--strip-components", "--threads", "--threads-http", "--tier", "--timeout",
+        "--tok-s", "--user", "--verbose", "--version", "--write-sums",
     }
     documented = set(re.findall(r"(?<![\w-])--[a-z][a-z0-9-]+", text))
     unexplained = documented - launcher_flags - exempt

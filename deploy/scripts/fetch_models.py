@@ -23,7 +23,7 @@ try:
     import yaml
 except ImportError:  # pragma: no cover
     print("FATAL: PyYAML is required", file=sys.stderr)
-    raise SystemExit(66)
+    raise SystemExit(66) from None
 
 HF = "https://huggingface.co/{repo}/resolve/main/{name}"
 

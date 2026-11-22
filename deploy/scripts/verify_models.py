@@ -25,7 +25,7 @@ try:
     import yaml
 except ImportError:  # pragma: no cover - yaml is a core dependency of srm_open
     print("FATAL: PyYAML is required", file=sys.stderr)
-    raise SystemExit(66)
+    raise SystemExit(66) from None
 
 CHUNK = 8 * 1024 * 1024
 

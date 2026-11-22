@@ -22,7 +22,7 @@ try:
     import yaml
 except ImportError:  # pragma: no cover
     print("FATAL: PyYAML is required", file=sys.stderr)
-    raise SystemExit(66)
+    raise SystemExit(66) from None
 
 # yaml key -> env var. Explicit so a typo in the YAML surfaces as a KeyError
 # here rather than as a silently-ignored server flag.

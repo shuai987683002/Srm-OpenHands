@@ -30,7 +30,7 @@ try:
     from docx.shared import Cm, Pt, RGBColor
 except ImportError:
     print("FATAL: python-docx is required (pip install python-docx)", file=sys.stderr)
-    raise SystemExit(66)
+    raise SystemExit(66) from None
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE = REPO_ROOT / "docs" / "llm_agent" / "离线部署实施手册.md"
